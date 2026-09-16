@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function member(projectId) {
+      return signedIn() && exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid));
+    }
+    match /projects/{projectId} {
+      allow read: if member(projectId);
+      allow create: if signedIn();
+      allow update: if member(projectId);
+      match /members/{uid} { allow read: if member(projectId); allow write: if signedIn() && (request.auth.uid == uid || member(projectId)); }
+      match /snags/{snagId} {
+        allow read, write: if member(projectId);
+        match /updates/{updateId} { allow read, write: if member(projectId); }
+      }
+    }
+  }
+}
