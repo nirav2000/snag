@@ -18,3 +18,8 @@
 .camera-shutter:active span{transform:scale(.92)}
 .camera-control-spacer{width:60px}
 @media(min-width:760px){.camera-modal{width:min(520px,100vw);height:min(820px,100dvh);margin:auto;border-radius:22px;overflow:hidden}}
+
+.optional{font-weight:500;color:var(--muted);font-size:11px}
+.camera-diagnostics{padding:8px 14px;background:#111;color:#cbd5e1;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;min-height:34px}
+.camera-stage video{display:block}
+.camera-stage .camera-message span{display:block;margin-top:6px;font-size:13px;line-height:1.35}
