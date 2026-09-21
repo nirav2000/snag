@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "snag-media-api",
+  "main": "cloudflare-worker.js",
+  "compatibility_date": "2026-09-21",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "r2_buckets": [{ "binding": "SNAG_MEDIA", "bucket_name": "snag-media" }],
+  "vars": {
+    "ALLOWED_ORIGIN": "https://nirav2000.github.io",
+    "FIREBASE_WEB_API_KEY": "AIzaSyDrreK9rhsoOpIYNr4QeNZ7CsXgQiMPW0E"
+  }
+}
