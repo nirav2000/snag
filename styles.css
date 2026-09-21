@@ -56,3 +56,63 @@
 .room-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.room-card{position:relative;text-align:left;border:1px solid var(--line);background:#fff;border-radius:16px;overflow:hidden;padding:0}.room-card img,.room-placeholder{width:100%;height:120px;object-fit:cover;background:#eef2f7;display:grid;place-items:center;font-size:30px}.room-card-copy{display:grid;gap:3px;padding:11px}.room-card-copy span{color:var(--muted);font-size:12px}.room-unread-dot{position:absolute;right:9px;top:9px;width:10px;height:10px;border-radius:50%;background:#ff3b30;box-shadow:0 0 0 2px #fff}
 @media(max-width:760px){.compact-project-title{display:grid}.compact-project-actions{justify-content:flex-start}.room-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.bottom-nav{width:100%}}
 @media(max-width:480px){.compact-project-title h1{font-size:27px}.room-grid{grid-template-columns:1fr 1fr}.room-card img,.room-placeholder{height:92px}}
+
+/* 1745 visual integration pass — tuned against the real iPhone screenshot */
+:root{--ios-blue:#007aff;--ios-red:#ff3b30;--ios-green:#34c759;--ios-amber:#ff9f0a;--surface:#ffffff;--canvas:#f5f7f9}
+body{background:var(--canvas)}
+.topbar{min-height:58px;padding:8px max(14px,calc((100vw - 1040px)/2));background:rgba(245,247,249,.94)}
+.brand-mark{width:34px;height:34px;border-radius:11px}.brand-block{gap:9px}.brand-title{font-size:13px}.eyebrow{font-size:10px}
+.topbar-actions{gap:6px}.topbar-actions .icon-button{width:38px;height:38px;border-radius:12px}
+.main-content{padding-top:12px}
+.compact-project-hero{padding:14px 16px!important;border-radius:20px!important;background:#fff!important}
+.compact-project-title{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:12px}
+.compact-project-title h1{font-size:30px;line-height:1.05;margin:0}
+.compact-project-title .subtle{font-size:14px;margin:3px 0 0}
+.compact-project-title .eyebrow{display:none}
+.compact-project-actions{align-items:center;gap:7px}
+.compact-project-hero .project-meta-row{margin-top:10px}
+.compact-project-hero .profile-pill{padding:5px 8px;background:#f2f4f7;color:#475467}
+.compact-project-hero .sync-pill{padding:7px 9px;background:#eefbf5}
+.compact-share{padding:8px 11px;min-height:38px}
+.notification-button{width:38px!important;height:38px!important;border-radius:12px!important}
+.home-stats{margin:12px 0 16px;gap:8px}
+.home-stats .stat-card{border:0;outline:0!important;border-radius:16px;padding:12px 13px;min-height:94px;box-shadow:none}
+.home-stats .stat-card:nth-child(1){background:#fff0ef}.home-stats .stat-card:nth-child(1) strong,.home-stats .stat-card:nth-child(1) .stat-label{color:#c62922}
+.home-stats .stat-card:nth-child(2){background:#edf5ff}.home-stats .stat-card:nth-child(2) strong,.home-stats .stat-card:nth-child(2) .stat-label{color:#006bd6}
+.home-stats .stat-card:nth-child(3){background:#fff7df}.home-stats .stat-card:nth-child(3) strong,.home-stats .stat-card:nth-child(3) .stat-label{color:#9a6400}
+.home-stats .stat-card:nth-child(4){background:#eaf8ef}.home-stats .stat-card:nth-child(4) strong,.home-stats .stat-card:nth-child(4) .stat-label{color:#147a3d}
+.home-stats .stat-card strong{font-size:27px;margin:4px 0 2px}.home-stats .stat-label{font-weight:800}.home-stats .stat-card small{font-size:11px}
+.recent-section{margin:8px 0 12px}.recent-head{margin-bottom:8px}.recent-head h2{font-size:22px;letter-spacing:-.02em}.recent-summary{font-size:12px;color:#667085}
+.recent-activity{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.activity-row{min-height:68px;border-radius:15px;padding:8px 30px 8px 8px;box-shadow:0 1px 2px rgba(16,24,40,.04)}.activity-thumb{width:52px;height:52px}.activity-copy strong{font-size:13px}.activity-copy small{font-size:11px}
+.snags-view .toolbar{position:sticky;top:62px;z-index:10;background:var(--canvas);padding:8px 0}.snag-card{border-radius:16px;padding:11px;gap:11px}.snag-thumb{width:64px;height:64px}.snag-card h3{font-size:15px}
+.bottom-nav{min-height:72px;padding:8px 12px calc(8px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(15,23,42,.07)}
+.bottom-nav button{min-height:54px;gap:4px;padding:4px 6px}.bottom-nav span{font-size:25px;line-height:1}.bottom-nav small{font-size:12px;font-weight:800}.nav-dot{width:8px;height:8px;right:calc(50% - 20px);top:2px}
+.fab{bottom:calc(84px + env(safe-area-inset-bottom));padding:14px 18px;border-radius:16px;font-size:15px}
+.room-card{border-radius:15px}.room-card img,.room-placeholder{height:112px}
+@media(max-width:700px){
+  .topbar .brand-block .eyebrow,.topbar .build-badge{display:none}
+  .topbar .brand-title{font-size:0}.topbar .brand-title::after{content:"Snag";font-size:18px;font-weight:850;letter-spacing:-.02em}
+  .topbar-actions #notesButton,.topbar-actions #projectButton{display:none}
+  .topbar-actions .icon-button{width:38px;height:38px}
+  .compact-project-title{grid-template-columns:1fr}.compact-project-actions{grid-row:2}
+  .compact-project-hero .project-meta-row{position:absolute;right:16px;bottom:15px;margin:0}
+  .compact-project-hero{position:relative;padding-bottom:48px!important}
+  .stats-grid.home-stats{grid-template-columns:repeat(2,1fr)}
+  .recent-activity{grid-template-columns:1fr}
+  .recent-activity .activity-row:nth-child(n+5){display:none}
+}
+@media(max-width:480px){
+  .main-content{padding:10px 12px 98px}
+  .compact-project-hero{padding:14px 14px 46px!important;border-radius:18px!important}
+  .compact-project-title h1{font-size:28px}
+  .compact-project-actions{gap:6px;flex-wrap:nowrap}
+  .compact-project-hero .sync-pill span:last-child{font-size:11px}
+  .compact-share{font-size:12px}
+  .home-stats{margin-top:10px}
+  .home-stats .stat-card{min-height:84px;padding:10px 11px}
+  .home-stats .stat-card strong{font-size:24px}
+  .recent-head{align-items:end}.recent-head h2{font-size:23px}.recent-summary{max-width:120px;text-align:right}
+  .activity-row{min-height:66px}.activity-thumb{width:50px;height:50px}
+  .bottom-nav{min-height:78px;padding-top:8px}.bottom-nav button{min-height:58px}.bottom-nav span{font-size:27px}.bottom-nav small{font-size:12px}
+  .fab{right:12px;bottom:calc(92px + env(safe-area-inset-bottom));font-size:14px}
+}
