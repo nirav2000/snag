@@ -25,7 +25,7 @@ export default {
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
   const url=new URL(request.url),prefix='/objects/';
   if(!url.pathname.startsWith(prefix))return new Response('Not found',{status:404,headers});
-  try{await verifyFirebaseToken(request,env)}catch(e){if(e instanceof Response){Object.entries(headers).forEach(([k,v])=>e.headers.set(k,v));return e}throw e}
+  if(request.method==='PUT'){try{await verifyFirebaseToken(request,env)}catch(e){if(e instanceof Response){Object.entries(headers).forEach(([k,v])=>e.headers.set(k,v));return e}throw e}}
   const key=url.pathname.slice(prefix.length).split('/').map(decodeURIComponent).join('/');
   if(!key||key.includes('..'))return new Response('Bad key',{status:400,headers});
   if(request.method==='PUT'){
