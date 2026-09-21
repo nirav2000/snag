@@ -74,7 +74,23 @@ async function prepareMedia(files,pathPrefix){
   }
   return result;
 }
-async function createSnag(e){e.preventDefault();const submitter=e.submitter;if(submitter?.value==='cancel')return $('snagDialog').close();const description=$('snagDescriptionInput').value.trim();if(!description){$('snagDescriptionInput').focus();$('snagDescriptionInput').reportValidity();return;}const enteredTitle=$('snagTitleInput').value.trim(),title=enteredTitle||(description.split(/\n|[.!?]/)[0].trim().slice(0,90)||'New snag');const id=uid(),t=now();$('createSnagSubmit').disabled=true;$('createSnagSubmit').textContent='Saving…';try{const media=await prepareMedia(pendingFiles,`snag-projects/${selectedProjectId}/snags/${id}`);const snag={id,projectId:selectedProjectId,ref:nextRef(),title,category:$('snagCategoryInput').value,priority:$('snagPriorityInput').value,location:$('snagLocationInput').value.trim(),assignee:$('snagAssigneeInput').value.trim(),description,outcome:$('snagOutcomeInput').value.trim(),status:'open',archived:false,createdAt:t,updatedAt:t,createdBy:profile.name,media,updates:[{id:uid(),type:'note',text:'Snag recorded.',author:profile.name,role:profile.role,createdAt:t,media:[]} ]};state.snags.push(snag);saveState();if(firebase)await writeSnag(snag);$('snagDialog').close();$('snagForm').reset();pendingFiles=[];$('newMediaPreview').innerHTML='';toast('Snag created');render();openDetail(id);}catch(err){console.error(err);toast('Could not save the snag');}finally{$('createSnagSubmit').disabled=false;$('createSnagSubmit').textContent='Create snag';}}
+async function createSnag(e){
+  e.preventDefault();
+  const submitter=e.submitter;
+  if(submitter?.value==='cancel')return $('snagDialog').close();
+  const description=$('snagDescriptionInput').value.trim();
+  const enteredTitle=$('snagTitleInput').value.trim();
+  const hasMedia=pendingFiles.length>0;
+  const error=$('snagFormError');
+  error.classList.add('hidden'); error.textContent='';
+  if(!enteredTitle&&!description&&!hasMedia){
+    error.textContent='Add a photo/video, a title, or a short description before creating the snag.';
+    error.classList.remove('hidden');
+    error.scrollIntoView({behavior:'smooth',block:'center'});
+    return;
+  }
+  const mediaLead=pendingFiles[0]?.type?.startsWith('video/')?'Video snag':pendingFiles[0]?.type?.startsWith('image/')?'Photo snag':'New snag';
+  const title=enteredTitle||(description.split(/\n|[.!?]/)[0].trim().slice(0,90)||mediaLead);const id=uid(),t=now();$('createSnagSubmit').disabled=true;$('createSnagSubmit').textContent=pendingFiles.length?'Uploading…':'Saving…';try{const media=await prepareMedia(pendingFiles,`snag-projects/${selectedProjectId}/snags/${id}`);const snag={id,projectId:selectedProjectId,ref:nextRef(),title,category:$('snagCategoryInput').value,priority:$('snagPriorityInput').value,location:$('snagLocationInput').value.trim(),assignee:$('snagAssigneeInput').value.trim(),description,outcome:$('snagOutcomeInput').value.trim(),status:'open',archived:false,createdAt:t,updatedAt:t,createdBy:profile.name,media,updates:[{id:uid(),type:'note',text:'Snag recorded.',author:profile.name,role:profile.role,createdAt:t,media:[]} ]};state.snags.push(snag);saveState();if(firebase)await writeSnag(snag);$('snagDialog').close();$('snagForm').reset();pendingFiles=[];$('newMediaPreview').innerHTML='';toast('Snag created');render();openDetail(id);}catch(err){console.error(err);toast('Could not save the snag');}finally{$('createSnagSubmit').disabled=false;$('createSnagSubmit').textContent='Create snag';}}
 async function addUpdate(id,text,files=[]){text=text.trim();if(!text&&!files.length)return;const s=state.snags.find(x=>x.id===id);const u={id:uid(),type:'note',text,author:profile.name,role:profile.role,createdAt:now(),media:await prepareMedia(files,`snag-projects/${selectedProjectId}/snags/${id}/updates`)};s.updates=s.updates||[];s.updates.push(u);s.updatedAt=u.createdAt;saveState();if(firebase)await writeUpdate(s,u);render();openDetail(id);toast('Update added');}
 async function setStatus(id,status){const s=state.snags.find(x=>x.id===id);if(!s||s.status===status)return;s.status=status;s.updatedAt=now();s.resolvedAt=status==='resolved'?s.updatedAt:null;s.updates.push({id:uid(),type:'status',text:`Status changed to ${statusLabel[status]}.`,author:profile.name,role:profile.role,createdAt:s.updatedAt,media:[]});saveState();if(firebase)await writeSnag(s);render();openDetail(id);toast(`Moved to ${statusLabel[status]}`);}
 async function toggleArchive(id){const s=state.snags.find(x=>x.id===id);s.archived=!s.archived;s.updatedAt=now();saveState();if(firebase)await writeSnag(s);render();openDetail(id);toast(s.archived?'Archived':'Restored');}
@@ -131,7 +147,7 @@ async function takeCameraTestPhoto(){
 }
 
 async function recordVoice(id){if(mediaRecorder?.state==='recording'){mediaRecorder.stop();return;}if(!navigator.mediaDevices?.getUserMedia)return toast('Voice recording is not supported here');try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});voiceChunks=[];mediaRecorder=new MediaRecorder(stream);mediaRecorder.ondataavailable=e=>voiceChunks.push(e.data);mediaRecorder.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(voiceChunks,{type:mediaRecorder.mimeType||'audio/webm'});const file=new File([blob],`voice-${Date.now()}.webm`,{type:blob.type});await addUpdate(id,'Voice memo',[file]);};mediaRecorder.start();$('voiceButton').textContent='■ Stop recording';toast('Recording voice memo…');}catch(e){toast('Microphone permission was not available');}}
-function newSnag(){pendingFiles=[];$('newMediaPreview').innerHTML='';$('snagForm').reset();$('similarPanel').classList.add('hidden');$('snagDialog').showModal();}
+function newSnag(){pendingFiles=[];$('newMediaPreview').innerHTML='';$('snagForm').reset();$('similarPanel').classList.add('hidden');$('snagFormError')?.classList.add('hidden');$('snagDialog').showModal();}
 function addPending(files){pendingFiles=[...pendingFiles,...files];renderTempPreview(pendingFiles,$('newMediaPreview'));$('newMediaPreview').querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{pendingFiles.splice(Number(b.dataset.i),1);addPending([]);});}
 async function shareProject(){
   if(!firebase?.auth?.currentUser)return toast('Cloud sharing is not connected yet');
