@@ -17,4 +17,4 @@ window.SNAG_CLOUD = {
 };
 // Set this to the deployed Cloudflare Worker URL once the R2 binding is ready.
 // Example: https://snag-media-api.<account>.workers.dev
-window.SNAG_R2_API = null;
+window.SNAG_R2_API = 'https://snag-media-api.nirav2000-github.workers.dev';
