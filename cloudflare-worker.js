@@ -1,3 +1,4 @@
+const WORKER_BUILD='2026.09.21.1320';
 // Cloudflare Worker for Snag Recorder media.
 // Bind the R2 bucket "snag-media" as SNAG_MEDIA.
 // Add these Worker secrets/variables:
@@ -24,6 +25,7 @@ export default {
   const origin=request.headers.get('Origin')||'',headers=cors(origin,env.ALLOWED_ORIGIN||'https://nirav2000.github.io');
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
   const url=new URL(request.url),prefix='/objects/';
+  if(url.pathname==='/health')return Response.json({ok:true,service:'snag-media-api',build:WORKER_BUILD,r2Bound:!!env.SNAG_MEDIA},{headers});
   if(!url.pathname.startsWith(prefix))return new Response('Not found',{status:404,headers});
   if(request.method==='PUT'){try{await verifyFirebaseToken(request,env)}catch(e){if(e instanceof Response){Object.entries(headers).forEach(([k,v])=>e.headers.set(k,v));return e}throw e}}
   const key=url.pathname.slice(prefix.length).split('/').map(decodeURIComponent).join('/');
