@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.21.1330';
+const APP_BUILD='2026.09.21.1355';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1'};
 const now=()=>new Date().toISOString();
@@ -121,8 +121,17 @@ async function startCameraTest(){
   }catch(err){
     console.error('Camera test failed',err);
     const name=err?.name||'CameraError',msg=err?.message||'Unknown camera error';
-    status.classList.remove('hidden');status.innerHTML='<strong>Camera preview failed</strong><span>'+escapeHtml(name)+': '+escapeHtml(msg)+'</span>';
-    cameraDiag('HTTPS: '+window.isSecureContext+' · permission/device error: '+name);
+    status.classList.remove('hidden');
+    if(name==='NotAllowedError'){
+      const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+      status.innerHTML=isiOS
+        ? '<strong>Camera access is blocked</strong><span>On iPhone/iPad, open Settings → Apps → Safari → Camera and choose Ask or Allow. Then return here and try again. Safari may not show a permission popup if Camera is already set to Deny.</span>'
+        : '<strong>Camera access is blocked</strong><span>Allow camera access for this site in your browser settings, then try again.</span>';
+      cameraDiag('HTTPS: '+window.isSecureContext+' · camera permission blocked (NotAllowedError)');
+    }else{
+      status.innerHTML='<strong>Camera preview failed</strong><span>'+escapeHtml(name)+': '+escapeHtml(msg)+'</span>';
+      cameraDiag('HTTPS: '+window.isSecureContext+' · permission/device error: '+name);
+    }
   }
 }
 async function openCameraTest(){
