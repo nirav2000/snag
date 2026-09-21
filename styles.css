@@ -23,3 +23,5 @@
 .camera-diagnostics{padding:8px 14px;background:#111;color:#cbd5e1;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;min-height:34px}
 .camera-stage video{display:block}
 .camera-stage .camera-message span{display:block;margin-top:6px;font-size:13px;line-height:1.35}
+
+.build-badge{border:0;background:#e5e7eb;color:#475569;border-radius:999px;padding:2px 7px;font-size:10px;font-weight:800;vertical-align:middle}.cloud-diagnostics{display:grid;gap:10px}.cloud-diagnostics #cloudDiagnostics{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
