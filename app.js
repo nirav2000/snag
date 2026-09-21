@@ -6,7 +6,7 @@ const escapeHtml=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;'
 const fmt=iso=>new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short'}).format(new Date(iso));
 const statusLabel={'open':'Open','in-progress':'In progress','review':'Needs review','resolved':'Resolved'};
 const priorityRank={Urgent:0,High:1,Normal:2,Low:3};
-let firebase=null, unsubscribe=null, pendingFiles=[], detailId=null, mediaRecorder=null, voiceChunks=[];
+let firebase=null, unsubscribe=null, pendingFiles=[], detailId=null, mediaRecorder=null, voiceChunks=[], cameraTestStream=null, cameraTestFacing='environment';
 let profile=JSON.parse(localStorage.getItem(LS.profile)||'null')||{name:'Me',role:'Client'};
 let state=loadState();
 const launchUrl=new URL(location.href), launchProjectId=launchUrl.searchParams.get('project'), launchInviteId=launchUrl.searchParams.get('invite');
@@ -62,13 +62,73 @@ async function uploadToR2(file,pathPrefix){
   const data=await response.json();
   return {url:data.url,key:data.key||key,name:file.name,type:file.type,size:file.size,local:false,storage:'r2'};
 }
-async function prepareMedia(files,pathPrefix){const result=[];for(const file of files){if(window.SNAG_R2_API&&firebase?.auth?.currentUser)result.push(await uploadToR2(file,pathPrefix));else result.push(await fileToDataUrl(file));}return result;}
-async function createSnag(e){e.preventDefault();const submitter=e.submitter;if(submitter?.value==='cancel')return $('snagDialog').close();const title=$('snagTitleInput').value.trim(),description=$('snagDescriptionInput').value.trim();if(!title||!description)return;const id=uid(),t=now();$('createSnagSubmit').disabled=true;$('createSnagSubmit').textContent='Saving…';try{const media=await prepareMedia(pendingFiles,`snag-projects/${selectedProjectId}/snags/${id}`);const snag={id,projectId:selectedProjectId,ref:nextRef(),title,category:$('snagCategoryInput').value,priority:$('snagPriorityInput').value,location:$('snagLocationInput').value.trim(),assignee:$('snagAssigneeInput').value.trim(),description,outcome:$('snagOutcomeInput').value.trim(),status:'open',archived:false,createdAt:t,updatedAt:t,createdBy:profile.name,media,updates:[{id:uid(),type:'note',text:'Snag recorded.',author:profile.name,role:profile.role,createdAt:t,media:[]} ]};state.snags.push(snag);saveState();if(firebase)await writeSnag(snag);$('snagDialog').close();$('snagForm').reset();pendingFiles=[];$('newMediaPreview').innerHTML='';toast('Snag created');render();openDetail(id);}catch(err){console.error(err);toast('Could not save the snag');}finally{$('createSnagSubmit').disabled=false;$('createSnagSubmit').textContent='Create snag';}}
+async function prepareMedia(files,pathPrefix){
+  const result=[];
+  for(const file of files){
+    if(window.SNAG_R2_API&&firebase?.auth?.currentUser){
+      result.push(await uploadToR2(file,pathPrefix));
+    }else{
+      if(file.size>4*1024*1024)throw new Error('Cloud sync is not ready; this attachment is too large for local fallback.');
+      result.push(await fileToDataUrl(file));
+    }
+  }
+  return result;
+}
+async function createSnag(e){e.preventDefault();const submitter=e.submitter;if(submitter?.value==='cancel')return $('snagDialog').close();const description=$('snagDescriptionInput').value.trim();if(!description){$('snagDescriptionInput').focus();$('snagDescriptionInput').reportValidity();return;}const enteredTitle=$('snagTitleInput').value.trim(),title=enteredTitle||(description.split(/\n|[.!?]/)[0].trim().slice(0,90)||'New snag');const id=uid(),t=now();$('createSnagSubmit').disabled=true;$('createSnagSubmit').textContent='Saving…';try{const media=await prepareMedia(pendingFiles,`snag-projects/${selectedProjectId}/snags/${id}`);const snag={id,projectId:selectedProjectId,ref:nextRef(),title,category:$('snagCategoryInput').value,priority:$('snagPriorityInput').value,location:$('snagLocationInput').value.trim(),assignee:$('snagAssigneeInput').value.trim(),description,outcome:$('snagOutcomeInput').value.trim(),status:'open',archived:false,createdAt:t,updatedAt:t,createdBy:profile.name,media,updates:[{id:uid(),type:'note',text:'Snag recorded.',author:profile.name,role:profile.role,createdAt:t,media:[]} ]};state.snags.push(snag);saveState();if(firebase)await writeSnag(snag);$('snagDialog').close();$('snagForm').reset();pendingFiles=[];$('newMediaPreview').innerHTML='';toast('Snag created');render();openDetail(id);}catch(err){console.error(err);toast('Could not save the snag');}finally{$('createSnagSubmit').disabled=false;$('createSnagSubmit').textContent='Create snag';}}
 async function addUpdate(id,text,files=[]){text=text.trim();if(!text&&!files.length)return;const s=state.snags.find(x=>x.id===id);const u={id:uid(),type:'note',text,author:profile.name,role:profile.role,createdAt:now(),media:await prepareMedia(files,`snag-projects/${selectedProjectId}/snags/${id}/updates`)};s.updates=s.updates||[];s.updates.push(u);s.updatedAt=u.createdAt;saveState();if(firebase)await writeUpdate(s,u);render();openDetail(id);toast('Update added');}
 async function setStatus(id,status){const s=state.snags.find(x=>x.id===id);if(!s||s.status===status)return;s.status=status;s.updatedAt=now();s.resolvedAt=status==='resolved'?s.updatedAt:null;s.updates.push({id:uid(),type:'status',text:`Status changed to ${statusLabel[status]}.`,author:profile.name,role:profile.role,createdAt:s.updatedAt,media:[]});saveState();if(firebase)await writeSnag(s);render();openDetail(id);toast(`Moved to ${statusLabel[status]}`);}
 async function toggleArchive(id){const s=state.snags.find(x=>x.id===id);s.archived=!s.archived;s.updatedAt=now();saveState();if(firebase)await writeSnag(s);render();openDetail(id);toast(s.archived?'Archived':'Restored');}
 function similarTo(text){const stop=new Set(['the','and','this','that','with','from','into','when','does','not','for','are','was','has','have','home','snag']);const words=new Set(text.toLowerCase().match(/[a-z0-9]+/g)?.filter(w=>w.length>3&&!stop.has(w))||[]);return projectSnags().filter(s=>s.status==='resolved').map(s=>{const sw=new Set(`${s.title} ${s.description} ${s.location}`.toLowerCase().match(/[a-z0-9]+/g)||[]);let hits=0;words.forEach(w=>{if(sw.has(w))hits++});return{s,score:words.size?hits/words.size:0};}).filter(x=>x.score>.12).sort((a,b)=>b.score-a.score).slice(0,3);}
 function renderSimilar(){const text=`${$('snagTitleInput').value} ${$('snagDescriptionInput').value} ${$('snagLocationInput').value}`;const matches=similarTo(text);$('similarPanel').classList.toggle('hidden',!matches.length);$('similarResults').innerHTML=matches.map(x=>`<div class="similar-item"><strong>${escapeHtml(x.s.ref)} · ${escapeHtml(x.s.title)}</strong><div class="subtle">Resolved ${x.s.resolvedAt?fmt(x.s.resolvedAt):''} · ${escapeHtml(x.s.location||'')}</div></div>`).join('');}
+
+
+function cameraDiag(message){const d=$('cameraDiagnostics');if(d)d.textContent=message||'';}
+function stopCameraTest(){
+  if(cameraTestStream){cameraTestStream.getTracks().forEach(t=>t.stop());cameraTestStream=null;}
+  const v=$('cameraTestPreview');if(v){v.srcObject=null;v.classList.remove('ready');}
+}
+async function startCameraTest(){
+  stopCameraTest();
+  const status=$('cameraTestStatus'),video=$('cameraTestPreview');
+  status.classList.remove('hidden');status.textContent='Requesting camera…';cameraDiag('');
+  if(!window.isSecureContext){status.textContent='Camera needs a secure HTTPS page.';cameraDiag('window.isSecureContext = false');return;}
+  if(!navigator.mediaDevices?.getUserMedia){status.textContent='This browser does not expose getUserMedia.';return;}
+  try{
+    const constraints={audio:false,video:{facingMode:{ideal:cameraTestFacing},width:{ideal:1920},height:{ideal:1440}}};
+    cameraTestStream=await navigator.mediaDevices.getUserMedia(constraints);
+    const track=cameraTestStream.getVideoTracks()[0];
+    video.muted=true;video.playsInline=true;video.autoplay=true;video.srcObject=cameraTestStream;
+    await video.play();
+    await new Promise((resolve,reject)=>{
+      if(video.readyState>=2&&video.videoWidth>0)return resolve();
+      const timer=setTimeout(()=>reject(new Error('No video frames arrived within 5 seconds')),5000);
+      video.addEventListener('loadeddata',()=>{clearTimeout(timer);resolve()},{once:true});
+    });
+    status.classList.add('hidden');video.classList.add('ready');
+    const settings=track?.getSettings?.()||{};
+    cameraDiag(`Camera active · ${settings.width||video.videoWidth}×${settings.height||video.videoHeight} · track ${track?.readyState||'unknown'}`);
+  }catch(err){
+    console.error('Camera test failed',err);
+    const name=err?.name||'CameraError',msg=err?.message||'Unknown camera error';
+    status.classList.remove('hidden');status.innerHTML='<strong>Camera preview failed</strong><span>'+escapeHtml(name)+': '+escapeHtml(msg)+'</span>';
+    cameraDiag('HTTPS: '+window.isSecureContext+' · permission/device error: '+name);
+  }
+}
+async function openCameraTest(){
+  $('cameraTestDialog').showModal();
+  await startCameraTest();
+}
+function closeCameraTest(){stopCameraTest();if($('cameraTestDialog').open)$('cameraTestDialog').close();}
+async function switchCameraTest(){cameraTestFacing=cameraTestFacing==='environment'?'user':'environment';await startCameraTest();}
+async function takeCameraTestPhoto(){
+  const video=$('cameraTestPreview');if(!cameraTestStream||video.readyState<2||!video.videoWidth){toast('No live camera frame is available');return;}
+  const canvas=$('cameraTestCanvas'),maxWidth=2000,scale=Math.min(1,maxWidth/video.videoWidth);
+  canvas.width=Math.round(video.videoWidth*scale);canvas.height=Math.round(video.videoHeight*scale);
+  canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.88));
+  if(!blob)return toast('Could not capture the camera frame');
+  addPending([new File([blob],`snag-photo-${Date.now()}.jpg`,{type:'image/jpeg'})]);closeCameraTest();toast('Photo attached');
+}
 
 async function recordVoice(id){if(mediaRecorder?.state==='recording'){mediaRecorder.stop();return;}if(!navigator.mediaDevices?.getUserMedia)return toast('Voice recording is not supported here');try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});voiceChunks=[];mediaRecorder=new MediaRecorder(stream);mediaRecorder.ondataavailable=e=>voiceChunks.push(e.data);mediaRecorder.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(voiceChunks,{type:mediaRecorder.mimeType||'audio/webm'});const file=new File([blob],`voice-${Date.now()}.webm`,{type:blob.type});await addUpdate(id,'Voice memo',[file]);};mediaRecorder.start();$('voiceButton').textContent='■ Stop recording';toast('Recording voice memo…');}catch(e){toast('Microphone permission was not available');}}
 function newSnag(){pendingFiles=[];$('newMediaPreview').innerHTML='';$('snagForm').reset();$('similarPanel').classList.add('hidden');$('snagDialog').showModal();}
@@ -94,7 +154,7 @@ async function initFirebase(cfg){
   const [appMod,fsMod,authMod]=await Promise.all([import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app.js`),import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-firestore.js`),import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-auth.js`)]);
   const app=appMod.getApps().length?appMod.getApps()[0]:appMod.initializeApp(cfg),db=fsMod.getFirestore(app),auth=authMod.getAuth(app);
   await auth.authStateReady();
-  if(!auth.currentUser)await authMod.signInAnonymously(auth);
+  if(!auth.currentUser){try{await authMod.signInAnonymously(auth);}catch(e){console.error('Anonymous Firebase sign-in failed',e);throw new Error('Automatic guest sign-in is not enabled in Firebase Authentication.');}}
   firebase={appMod,fsMod,authMod,app,db,auth};
   if(launchProjectId&&launchInviteId)await joinInvitedProject(launchProjectId,launchInviteId);
   else await ensureProjectRemote();
@@ -123,5 +183,5 @@ async function writeSnag(s){const {fsMod,db}=firebase;const clean={...s};delete 
 async function writeUpdate(s,u){const {fsMod,db}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),{updatedAt:s.updatedAt},{merge:true});}
 function subscribeFirebase(){if(!firebase?.auth?.currentUser)return;unsubscribe?.();const {fsMod,db}=firebase;const q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'snags'),fsMod.orderBy('updatedAt','desc'));unsubscribe=fsMod.onSnapshot(q,async snap=>{for(const d of snap.docs){const data={id:d.id,...d.data()};const us=await fsMod.getDocs(fsMod.collection(db,'snag_projects',selectedProjectId,'snags',d.id,'updates'));data.updates=us.docs.map(x=>({id:x.id,...x.data()}));const i=state.snags.findIndex(x=>x.id===data.id);if(i>=0)state.snags[i]=data;else state.snags.push(data);}saveState();render();if(detailId)openDetail(detailId);},e=>console.warn('Firestore listener',e));}
 function disconnectFirebase(){unsubscribe?.();unsubscribe=null;firebase=null;localStorage.removeItem(LS.firebase);toast('Using local mode');render();}
-function bind(){document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;render()});$('createProjectButton').onclick=()=>{const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));render();toast('Identity saved')};$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
+function bind(){document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;render()});$('createProjectButton').onclick=()=>{const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));render();toast('Identity saved')};$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
 bind();render();const cfg=window.SNAG_FIREBASE_CONFIG||JSON.parse(localStorage.getItem(LS.firebase)||'null');if(cfg)initFirebase(cfg).then(render).catch(e=>{console.warn(e);firebase=null;render();});
