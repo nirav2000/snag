@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.21.1415';
+const APP_BUILD='2026.09.21.1430';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1'};
 const now=()=>new Date().toISOString();
@@ -198,10 +198,23 @@ async function migrateMediaItems(items,pathPrefix){
   return out;
 }
 async function migrateLocalProjectToCloud(){
-  if(!firebase?.auth?.currentUser)return;
+  if(!firebase?.auth?.currentUser)return {total:0,written:0,mediaFailed:0};
   const localSnags=state.snags.filter(s=>s.projectId===selectedProjectId);
-  if(!localSnags.length)return;
+  let written=0,mediaFailed=0;
   for(const snag of localSnags){
+    // First publish the snag and its conversation WITHOUT depending on R2.
+    // A media upload failure must never make the snag disappear for collaborators.
+    try{
+      const basic={...snag,media:(snag.media||[]).filter(m=>!m?.local&&!m?.url?.startsWith('data:'))};
+      basic.updates=(snag.updates||[]).map(u=>({...u,media:(u.media||[]).filter(m=>!m?.local&&!m?.url?.startsWith('data:'))}));
+      await writeSnag(basic);
+      written++;
+    }catch(e){
+      console.error('Could not publish snag metadata',snag.id,e);
+      continue;
+    }
+
+    // Then migrate local media. If it fails, the shared snag remains visible.
     try{
       snag.media=await migrateMediaItems(snag.media,`snag-projects/${selectedProjectId}/snags/${snag.id}`);
       for(const update of (snag.updates||[])){
@@ -209,10 +222,12 @@ async function migrateLocalProjectToCloud(){
       }
       await writeSnag(snag);
     }catch(e){
-      console.warn('Could not migrate local snag',snag.id,e);
+      mediaFailed++;
+      console.warn('Snag published, but some media could not migrate',snag.id,e);
     }
   }
   saveState();
+  return {total:localSnags.length,written,mediaFailed};
 }
 async function initFirebase(cfg){
   cloudStatus={state:'starting',message:'Connecting to Firebase…'};render();
@@ -222,9 +237,9 @@ async function initFirebase(cfg){
   if(!auth.currentUser){try{await authMod.signInAnonymously(auth);}catch(e){console.error('Anonymous Firebase sign-in failed',e);cloudStatus={state:'error',message:e?.code==='auth/operation-not-allowed'?'Anonymous sign-in is disabled in Firebase Authentication.':(e?.code||e?.message||'Firebase sign-in failed')};render();throw e;}}
   firebase={appMod,fsMod,authMod,app,db,auth};
   if(launchProjectId&&launchInviteId)await joinInvitedProject(launchProjectId,launchInviteId);
-  else {await ensureProjectRemote();await migrateLocalProjectToCloud();}
+  else {await ensureProjectRemote();const migration=await migrateLocalProjectToCloud();cloudStatus={state:'connected',message:`Shared cloud connected · owner access · ${migration.written}/${migration.total} local snags synced${migration.mediaFailed?` · ${migration.mediaFailed} media item group(s) pending`:''} · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};}
   subscribeFirebase();
-  cloudStatus={state:'connected',message:`Shared cloud connected · ${launchInviteId?'invite access':'owner access'} · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};render();
+  if(launchInviteId)cloudStatus={state:'connected',message:`Shared cloud connected · invite access · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};render();
 }
 async function joinInvitedProject(projectId,inviteId){
   const {fsMod,db,auth}=firebase;
@@ -257,7 +272,7 @@ async function writeSnag(s){const {fsMod,db}=firebase;const clean={...s};delete 
 async function writeUpdate(s,u){const {fsMod,db}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),{updatedAt:s.updatedAt},{merge:true});}
 function subscribeFirebase(){if(!firebase?.auth?.currentUser)return;unsubscribe?.();const {fsMod,db}=firebase;const q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'snags'),fsMod.orderBy('updatedAt','desc'));unsubscribe=fsMod.onSnapshot(q,async snap=>{for(const d of snap.docs){const data={id:d.id,...d.data()};const us=await fsMod.getDocs(fsMod.collection(db,'snag_projects',selectedProjectId,'snags',d.id,'updates'));data.updates=us.docs.map(x=>({id:x.id,...x.data()}));const i=state.snags.findIndex(x=>x.id===data.id);if(i>=0)state.snags[i]=data;else state.snags.push(data);}saveState();render();if(detailId)openDetail(detailId);},e=>console.warn('Firestore listener',e));}
 function disconnectFirebase(){unsubscribe?.();unsubscribe=null;firebase=null;localStorage.removeItem(LS.firebase);toast('Using local mode');render();}
-function renderCloudDiagnostics(){const t=cloudStatus.message||cloudStatus.state;if($('cloudDiagnostics'))$('cloudDiagnostics').textContent=t;if($('buildDialogCloud'))$('buildDialogCloud').textContent=t;if($('runningBuild'))$('runningBuild').textContent='v'+APP_BUILD;if($('buildDialogRunning'))$('buildDialogRunning').textContent='v'+APP_BUILD;const l=latestBuild?.build;if($('latestBuildState'))$('latestBuildState').textContent=l?(l===APP_BUILD?'· latest':'· update available'):'· latest unknown';if($('buildDialogLatest'))$('buildDialogLatest').textContent=l?'v'+l:'Unknown';}
+function renderCloudDiagnostics(){if($('buildBadge'))$('buildBadge').textContent='v'+APP_BUILD;const t=cloudStatus.message||cloudStatus.state;if($('cloudDiagnostics'))$('cloudDiagnostics').textContent=t;if($('buildDialogCloud'))$('buildDialogCloud').textContent=t;if($('runningBuild'))$('runningBuild').textContent='v'+APP_BUILD;if($('buildDialogRunning'))$('buildDialogRunning').textContent='v'+APP_BUILD;const l=latestBuild?.build;if($('latestBuildState'))$('latestBuildState').textContent=l?(l===APP_BUILD?'· latest':'· update available'):'· latest unknown';if($('buildDialogLatest'))$('buildDialogLatest').textContent=l?'v'+l:'Unknown';}
 async function checkLatestBuild(){try{const r=await fetch('./version.json?t='+Date.now(),{cache:'no-store'});latestBuild=r.ok?await r.json():null}catch{latestBuild=null}renderCloudDiagnostics()}
 async function hardRefreshApp(){try{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('snag-')).map(k=>caches.delete(k)))}catch(e){console.warn(e)}location.reload()}
 function bind(){document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;render()});$('createProjectButton').onclick=()=>{const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));render();toast('Identity saved')};$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});$('buildBadge').onclick=()=>{$('buildDialog').showModal();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
