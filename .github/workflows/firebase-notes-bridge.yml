@@ -1,0 +1,37 @@
+name: Refresh Snag review feed
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+permissions:
+  contents: read
+jobs:
+  refresh-review-feed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Firestore review feed
+        env:
+          FBNOTES: ${{ secrets.FBNOTES }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${FBNOTES:-}" || { echo "FBNOTES secret is missing." >&2; exit 1; }
+          mkdir -p out
+          curl --fail-with-body --silent --show-error --location --retry 3 --retry-all-errors -o out/firestore-document.json "$FBNOTES"
+      - name: Convert Firestore JSON
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('fs'),input=JSON.parse(fs.readFileSync('out/firestore-document.json','utf8'));
+          function decode(v){if(!v||typeof v!=='object')return null;if('nullValue'in v)return null;if('stringValue'in v)return v.stringValue;if('booleanValue'in v)return v.booleanValue;if('integerValue'in v)return Number(v.integerValue);if('doubleValue'in v)return Number(v.doubleValue);if('timestampValue'in v)return v.timestampValue;if('arrayValue'in v)return(v.arrayValue.values||[]).map(decode);if('mapValue'in v)return fields(v.mapValue.fields||{});return null}
+          function fields(f){return Object.fromEntries(Object.entries(f).map(([k,v])=>[k,decode(v)]))}
+          if(!input.fields)throw Error('No Firestore document fields');
+          const feed=fields(input.fields);if(feed.app!=='snag')throw Error('Unexpected app: '+feed.app);
+          fs.writeFileSync('out/review-feed.json',JSON.stringify({...feed,_bridge:{fetchedAt:new Date().toISOString(),firestoreUpdateTime:input.updateTime||null}},null,2)+'\n');
+          NODE
+          rm out/firestore-document.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snag-review-feed
+          path: out/review-feed.json
+          retention-days: 1
