@@ -9,9 +9,10 @@ const priorityRank={Urgent:0,High:1,Normal:2,Low:3};
 let firebase=null, unsubscribe=null, pendingFiles=[], detailId=null, mediaRecorder=null, voiceChunks=[];
 let profile=JSON.parse(localStorage.getItem(LS.profile)||'null')||{name:'Me',role:'Client'};
 let state=loadState();
-let selectedProjectId=new URL(location.href).searchParams.get('project')||state.selectedProjectId||state.projects[0]?.id;
-if(!state.projects.some(p=>p.id===selectedProjectId)) selectedProjectId=state.projects[0]?.id;
-state.selectedProjectId=selectedProjectId; saveState();
+const launchUrl=new URL(location.href), launchProjectId=launchUrl.searchParams.get('project'), launchInviteId=launchUrl.searchParams.get('invite');
+let selectedProjectId=launchProjectId||state.selectedProjectId||state.projects[0]?.id;
+if(!launchProjectId&&!state.projects.some(p=>p.id===selectedProjectId)) selectedProjectId=state.projects[0]?.id;
+if(state.projects.some(p=>p.id===selectedProjectId)){state.selectedProjectId=selectedProjectId;saveState();}
 let view={status:'active',search:'',category:'all',priority:'all',archived:false,sort:'updated'};
 const $=id=>document.getElementById(id);
 function loadState(){
@@ -72,13 +73,55 @@ function renderSimilar(){const text=`${$('snagTitleInput').value} ${$('snagDescr
 async function recordVoice(id){if(mediaRecorder?.state==='recording'){mediaRecorder.stop();return;}if(!navigator.mediaDevices?.getUserMedia)return toast('Voice recording is not supported here');try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});voiceChunks=[];mediaRecorder=new MediaRecorder(stream);mediaRecorder.ondataavailable=e=>voiceChunks.push(e.data);mediaRecorder.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(voiceChunks,{type:mediaRecorder.mimeType||'audio/webm'});const file=new File([blob],`voice-${Date.now()}.webm`,{type:blob.type});await addUpdate(id,'Voice memo',[file]);};mediaRecorder.start();$('voiceButton').textContent='■ Stop recording';toast('Recording voice memo…');}catch(e){toast('Microphone permission was not available');}}
 function newSnag(){pendingFiles=[];$('newMediaPreview').innerHTML='';$('snagForm').reset();$('similarPanel').classList.add('hidden');$('snagDialog').showModal();}
 function addPending(files){pendingFiles=[...pendingFiles,...files];renderTempPreview(pendingFiles,$('newMediaPreview'));$('newMediaPreview').querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{pendingFiles.splice(Number(b.dataset.i),1);addPending([]);});}
-function shareProject(){const u=new URL(location.href);u.searchParams.set('project',selectedProjectId);$('shareLinkInput').value=u.toString();$('shareDialog').showModal();}
+async function shareProject(){
+  if(!firebase?.auth?.currentUser)return toast('Cloud sharing is not connected yet');
+  try{
+    const {fsMod,db,auth}=firebase,p=project();
+    const projectRef=fsMod.doc(db,'snag_projects',selectedProjectId);
+    const projectSnap=await fsMod.getDoc(projectRef);
+    if(!projectSnap.exists())await ensureProjectRemote();
+    const latest=(await fsMod.getDoc(projectRef)).data();
+    if(latest?.ownerUid!==auth.currentUser.uid)return toast('Only the project owner can create an invite');
+    const inviteId=randomCapability();
+    await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:true,role:'contractor',createdAt:now(),createdBy:auth.currentUser.uid});
+    const u=new URL(location.href);u.searchParams.set('project',selectedProjectId);u.searchParams.set('invite',inviteId);
+    $('shareLinkInput').value=u.toString();$('shareDialog').showModal();
+  }catch(e){console.error(e);toast('Could not create a secure invite link');}
+}
+function randomCapability(){const b=new Uint8Array(32);crypto.getRandomValues(b);return btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
 async function connectFirebase(){try{const raw=$('firebaseConfigInput').value.trim();const cfg=raw?JSON.parse(raw):window.SNAG_FIREBASE_CONFIG;if(!cfg)throw new Error('Missing config');localStorage.setItem(LS.firebase,JSON.stringify(cfg));await initFirebase(cfg);toast('Firebase connected');render();}catch(e){console.error(e);toast('Firebase config could not be connected');}}
-async function initFirebase(cfg){const [appMod,fsMod,authMod]=await Promise.all([import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app.js`),import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-firestore.js`),import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-auth.js`)]);const app=appMod.getApps().length?appMod.getApps()[0]:appMod.initializeApp(cfg);const db=fsMod.getFirestore(app),auth=authMod.getAuth(app);await auth.authStateReady();firebase={appMod,fsMod,authMod,app,db,auth};if(auth.currentUser){await ensureProjectRemote();subscribeFirebase();}}
-async function ensureProjectRemote(){if(!firebase?.auth?.currentUser)return;const p=project(),{fsMod,db,auth}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',p.id),p,{merge:true});if(auth.currentUser)await fsMod.setDoc(fsMod.doc(db,'snag_projects',p.id,'members',auth.currentUser.uid),{uid:auth.currentUser.uid,name:profile.name,role:profile.role,joinedAt:now()},{merge:true});}
+async function initFirebase(cfg){
+  const [appMod,fsMod,authMod]=await Promise.all([import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app.js`),import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-firestore.js`),import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-auth.js`)]);
+  const app=appMod.getApps().length?appMod.getApps()[0]:appMod.initializeApp(cfg),db=fsMod.getFirestore(app),auth=authMod.getAuth(app);
+  await auth.authStateReady();
+  if(!auth.currentUser)await authMod.signInAnonymously(auth);
+  firebase={appMod,fsMod,authMod,app,db,auth};
+  if(launchProjectId&&launchInviteId)await joinInvitedProject(launchProjectId,launchInviteId);
+  else await ensureProjectRemote();
+  subscribeFirebase();
+}
+async function joinInvitedProject(projectId,inviteId){
+  const {fsMod,db,auth}=firebase;
+  const inviteSnap=await fsMod.getDoc(fsMod.doc(db,'snag_projects',projectId,'invites',inviteId));
+  if(!inviteSnap.exists()||inviteSnap.data().active!==true)throw new Error('Invite is invalid or has been revoked');
+  const role=inviteSnap.data().role||'contractor';
+  await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'members',auth.currentUser.uid),{uid:auth.currentUser.uid,name:profile.name,role,inviteId,joinedAt:now()},{merge:true});
+  const pSnap=await fsMod.getDoc(fsMod.doc(db,'snag_projects',projectId));
+  if(!pSnap.exists())throw new Error('Project not found');
+  const p={id:projectId,...pSnap.data()};
+  const i=state.projects.findIndex(x=>x.id===projectId);if(i>=0)state.projects[i]=p;else state.projects.push(p);
+  selectedProjectId=projectId;state.selectedProjectId=projectId;profile={...profile,role:role[0].toUpperCase()+role.slice(1)};localStorage.setItem(LS.profile,JSON.stringify(profile));saveState();
+}
+async function ensureProjectRemote(){
+  if(!firebase?.auth?.currentUser)return;const p=project(),{fsMod,db,auth}=firebase;if(!p)return;
+  const ref=fsMod.doc(db,'snag_projects',p.id),snap=await fsMod.getDoc(ref);
+  if(!snap.exists())await fsMod.setDoc(ref,{...p,ownerUid:auth.currentUser.uid,updatedAt:now()});
+  const remote=(await fsMod.getDoc(ref)).data();
+  if(remote?.ownerUid===auth.currentUser.uid)await fsMod.setDoc(fsMod.doc(db,'snag_projects',p.id,'members',auth.currentUser.uid),{uid:auth.currentUser.uid,name:profile.name,role:'owner',joinedAt:now()},{merge:true});
+}
 async function writeSnag(s){const {fsMod,db}=firebase;const clean={...s};delete clean.updates;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),clean,{merge:true});for(const u of s.updates||[])await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});}
 async function writeUpdate(s,u){const {fsMod,db}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),{updatedAt:s.updatedAt},{merge:true});}
 function subscribeFirebase(){if(!firebase?.auth?.currentUser)return;unsubscribe?.();const {fsMod,db}=firebase;const q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'snags'),fsMod.orderBy('updatedAt','desc'));unsubscribe=fsMod.onSnapshot(q,async snap=>{for(const d of snap.docs){const data={id:d.id,...d.data()};const us=await fsMod.getDocs(fsMod.collection(db,'snag_projects',selectedProjectId,'snags',d.id,'updates'));data.updates=us.docs.map(x=>({id:x.id,...x.data()}));const i=state.snags.findIndex(x=>x.id===data.id);if(i>=0)state.snags[i]=data;else state.snags.push(data);}saveState();render();if(detailId)openDetail(detailId);},e=>console.warn('Firestore listener',e));}
 function disconnectFirebase(){unsubscribe?.();unsubscribe=null;firebase=null;localStorage.removeItem(LS.firebase);toast('Using local mode');render();}
-function bind(){document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;render()});$('createProjectButton').onclick=()=>{const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);toast('Project created')};$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));render();toast('Identity saved')};$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
+function bind(){document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;render()});$('createProjectButton').onclick=()=>{const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));render();toast('Identity saved')};$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
 bind();render();const cfg=window.SNAG_FIREBASE_CONFIG||JSON.parse(localStorage.getItem(LS.firebase)||'null');if(cfg)initFirebase(cfg).then(render).catch(e=>{console.warn(e);firebase=null;render();});
