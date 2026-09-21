@@ -1,6 +1,6 @@
-const APP_BUILD='2026.09.21.1355';
+const APP_BUILD='2026.09.21.1405';
 const FIREBASE_VERSION='12.2.1';
-const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1'};
+const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1'};
 const now=()=>new Date().toISOString();
 const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const escapeHtml=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -10,7 +10,10 @@ const priorityRank={Urgent:0,High:1,Normal:2,Low:3};
 let firebase=null, unsubscribe=null, pendingFiles=[], detailId=null, mediaRecorder=null, voiceChunks=[], cameraTestStream=null, cameraTestFacing='environment', cloudStatus={state:'starting',message:'Starting Firebase…'}, latestBuild=null;
 let profile=JSON.parse(localStorage.getItem(LS.profile)||'null')||{name:'Me',role:'Client'};
 let state=loadState();
-const launchUrl=new URL(location.href), launchProjectId=launchUrl.searchParams.get('project'), launchInviteId=launchUrl.searchParams.get('invite');
+const launchUrl=new URL(location.href);
+const savedAccess=(()=>{try{return JSON.parse(localStorage.getItem(LS.access)||'null')}catch{return null}})();
+const launchProjectId=launchUrl.searchParams.get('project')||savedAccess?.projectId||null;
+const launchInviteId=launchUrl.searchParams.get('invite')||((savedAccess?.projectId===launchProjectId)?savedAccess?.inviteId:null);
 let selectedProjectId=launchProjectId||state.selectedProjectId||state.projects[0]?.id;
 if(!launchProjectId&&!state.projects.some(p=>p.id===selectedProjectId)) selectedProjectId=state.projects[0]?.id;
 if(state.projects.some(p=>p.id===selectedProjectId)){state.selectedProjectId=selectedProjectId;saveState();}
@@ -163,13 +166,54 @@ async function shareProject(){
     const latest=(await fsMod.getDoc(projectRef)).data();
     if(latest?.ownerUid!==auth.currentUser.uid)return toast('Only the project owner can create an invite');
     const inviteId=randomCapability();
-    await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:true,role:'contractor',createdAt:now(),createdBy:auth.currentUser.uid});
+    await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:true,role:'contractor',persistent:true,createdAt:now(),createdBy:auth.currentUser.uid});
     const u=new URL(location.href);u.searchParams.set('project',selectedProjectId);u.searchParams.set('invite',inviteId);
     $('shareLinkInput').value=u.toString();$('shareDialog').showModal();
   }catch(e){console.error(e);toast('Could not create a secure invite link');}
 }
 function randomCapability(){const b=new Uint8Array(32);crypto.getRandomValues(b);return btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
 async function connectFirebase(){try{const raw=$('firebaseConfigInput').value.trim();const cfg=raw?JSON.parse(raw):window.SNAG_FIREBASE_CONFIG;if(!cfg)throw new Error('Missing config');localStorage.setItem(LS.firebase,JSON.stringify(cfg));await initFirebase(cfg);toast('Firebase connected');render();}catch(e){console.error(e);toast('Firebase config could not be connected');}}
+
+function rememberSharedAccess(projectId,inviteId,role){
+  if(!projectId||!inviteId)return;
+  localStorage.setItem(LS.access,JSON.stringify({projectId,inviteId,role:role||'contractor',savedAt:now()}));
+}
+function dataUrlToFile(item){
+  if(!item?.url?.startsWith('data:'))return null;
+  const [head,data]=item.url.split(',');
+  const mime=(head.match(/data:([^;]+)/)||[])[1]||item.type||'application/octet-stream';
+  const binary=head.includes(';base64')?atob(data):decodeURIComponent(data);
+  const bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+  return new File([bytes],item.name||('attachment-'+Date.now()),{type:mime});
+}
+async function migrateMediaItems(items,pathPrefix){
+  const out=[];
+  for(const item of (items||[])){
+    if(item?.storage==='r2'||(!item?.local&&!item?.url?.startsWith('data:'))){out.push(item);continue;}
+    const file=dataUrlToFile(item);
+    if(!file){out.push(item);continue;}
+    const optimised=await optimiseMediaFile(file);
+    out.push(await uploadToR2(optimised,pathPrefix));
+  }
+  return out;
+}
+async function migrateLocalProjectToCloud(){
+  if(!firebase?.auth?.currentUser)return;
+  const localSnags=state.snags.filter(s=>s.projectId===selectedProjectId);
+  if(!localSnags.length)return;
+  for(const snag of localSnags){
+    try{
+      snag.media=await migrateMediaItems(snag.media,`snag-projects/${selectedProjectId}/snags/${snag.id}`);
+      for(const update of (snag.updates||[])){
+        update.media=await migrateMediaItems(update.media,`snag-projects/${selectedProjectId}/snags/${snag.id}/updates/${update.id}`);
+      }
+      await writeSnag(snag);
+    }catch(e){
+      console.warn('Could not migrate local snag',snag.id,e);
+    }
+  }
+  saveState();
+}
 async function initFirebase(cfg){
   cloudStatus={state:'starting',message:'Connecting to Firebase…'};render();
   const [appMod,fsMod,authMod]=await Promise.all([import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app.js`),import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-firestore.js`),import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-auth.js`)]);
@@ -178,15 +222,16 @@ async function initFirebase(cfg){
   if(!auth.currentUser){try{await authMod.signInAnonymously(auth);}catch(e){console.error('Anonymous Firebase sign-in failed',e);cloudStatus={state:'error',message:e?.code==='auth/operation-not-allowed'?'Anonymous sign-in is disabled in Firebase Authentication.':(e?.code||e?.message||'Firebase sign-in failed')};render();throw e;}}
   firebase={appMod,fsMod,authMod,app,db,auth};
   if(launchProjectId&&launchInviteId)await joinInvitedProject(launchProjectId,launchInviteId);
-  else await ensureProjectRemote();
+  else {await ensureProjectRemote();await migrateLocalProjectToCloud();}
   subscribeFirebase();
-  cloudStatus={state:'connected',message:`Firebase connected as guest ${auth.currentUser.uid.slice(0,8)}… · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};render();
+  cloudStatus={state:'connected',message:`Shared cloud connected · ${launchInviteId?'invite access':'owner access'} · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};render();
 }
 async function joinInvitedProject(projectId,inviteId){
   const {fsMod,db,auth}=firebase;
   const inviteSnap=await fsMod.getDoc(fsMod.doc(db,'snag_projects',projectId,'invites',inviteId));
   if(!inviteSnap.exists()||inviteSnap.data().active!==true)throw new Error('Invite is invalid or has been revoked');
   const role=inviteSnap.data().role||'contractor';
+  rememberSharedAccess(projectId,inviteId,role);
   await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'members',auth.currentUser.uid),{uid:auth.currentUser.uid,name:profile.name,role,inviteId,joinedAt:now()},{merge:true});
   const pSnap=await fsMod.getDoc(fsMod.doc(db,'snag_projects',projectId));
   if(!pSnap.exists())throw new Error('Project not found');
