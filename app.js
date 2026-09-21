@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.21.1310';
+const APP_BUILD='2026.09.21.1330';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1'};
 const now=()=>new Date().toISOString();
@@ -186,11 +186,18 @@ async function joinInvitedProject(projectId,inviteId){
   selectedProjectId=projectId;state.selectedProjectId=projectId;profile={...profile,role:role[0].toUpperCase()+role.slice(1)};localStorage.setItem(LS.profile,JSON.stringify(profile));saveState();
 }
 async function ensureProjectRemote(){
-  if(!firebase?.auth?.currentUser)return;const p=project(),{fsMod,db,auth}=firebase;if(!p)return;
-  const ref=fsMod.doc(db,'snag_projects',p.id),snap=await fsMod.getDoc(ref);
-  if(!snap.exists())await fsMod.setDoc(ref,{...p,ownerUid:auth.currentUser.uid,updatedAt:now()});
-  const remote=(await fsMod.getDoc(ref)).data();
-  if(remote?.ownerUid===auth.currentUser.uid)await fsMod.setDoc(fsMod.doc(db,'snag_projects',p.id,'members',auth.currentUser.uid),{uid:auth.currentUser.uid,name:profile.name,role:'owner',joinedAt:now()},{merge:true});
+  if(!firebase?.auth?.currentUser)return;
+  const p=project(),{fsMod,db,auth}=firebase;if(!p)return;
+  const ref=fsMod.doc(db,'snag_projects',p.id);
+  // Bootstrap by writing first. Reading a document that does not yet exist is
+  // denied by the owner/member read rule, so a get-before-create deadlocks a
+  // brand-new anonymous session with permission-denied.
+  await fsMod.setDoc(ref,{...p,ownerUid:auth.currentUser.uid,updatedAt:now()},{merge:true});
+  await fsMod.setDoc(
+    fsMod.doc(db,'snag_projects',p.id,'members',auth.currentUser.uid),
+    {uid:auth.currentUser.uid,name:profile.name,role:'owner',joinedAt:now()},
+    {merge:true}
+  );
 }
 async function writeSnag(s){const {fsMod,db}=firebase;const clean={...s};delete clean.updates;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),clean,{merge:true});for(const u of s.updates||[])await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});}
 async function writeUpdate(s,u){const {fsMod,db}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),{updatedAt:s.updatedAt},{merge:true});}
