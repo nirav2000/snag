@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.21.1430';
+const APP_BUILD='2026.09.21.1500';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1'};
 const now=()=>new Date().toISOString();
@@ -7,7 +7,7 @@ const escapeHtml=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;'
 const fmt=iso=>new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short'}).format(new Date(iso));
 const statusLabel={'open':'Open','in-progress':'In progress','review':'Needs review','resolved':'Resolved'};
 const priorityRank={Urgent:0,High:1,Normal:2,Low:3};
-let firebase=null, unsubscribe=null, pendingFiles=[], detailId=null, mediaRecorder=null, voiceChunks=[], cameraTestStream=null, cameraTestFacing='environment', cloudStatus={state:'starting',message:'Starting Firebase…'}, latestBuild=null;
+let firebase=null, unsubscribe=null, pendingFiles=[], detailId=null, mediaRecorder=null, voiceChunks=[], cameraTestStream=null, cameraTestFacing='environment', cloudStatus={state:'starting',message:'Starting Firebase…'}, latestBuild=null, annotationState={source:null,mode:null,index:null,updateId:null,history:[],colour:'#ef4444',image:null};
 let profile=JSON.parse(localStorage.getItem(LS.profile)||'null')||{name:'Me',role:'Client'};
 let state=loadState();
 const launchUrl=new URL(location.href);
@@ -52,11 +52,48 @@ function selectProject(id){selectedProjectId=id;state.selectedProjectId=id;saveS
 function renderSettings(){$('profileNameInput').value=profile.name;$('profileRoleInput').value=profile.role;const raw=localStorage.getItem(LS.firebase)||'';$('firebaseConfigInput').value=raw;const live=!!firebase?.auth?.currentUser;$('firebaseStatusTitle').textContent=live?'Connected':'Local mode';$('firebaseBadge').className=`badge ${live?'good':'neutral'}`;$('firebaseBadge').textContent=live?'Connected':'Not signed in';$('shareWarning').classList.toggle('hidden',live);}
 function openDetail(id){detailId=id;const s=state.snags.find(x=>x.id===id);if(!s)return;$('detailRef').textContent=s.ref;$('detailTitle').textContent=s.title;renderDetail(s);$('detailDrawer').classList.remove('hidden');$('backdrop').classList.remove('hidden');$('detailDrawer').setAttribute('aria-hidden','false');}
 function closeDetail(){$('detailDrawer').classList.add('hidden');$('backdrop').classList.add('hidden');$('detailDrawer').setAttribute('aria-hidden','true');detailId=null;}
-function mediaHtml(items=[]){if(!items.length)return'';return `<div class="media-grid">${items.map(m=>m.type?.startsWith('image')?`<a class="media-item" href="${escapeHtml(m.url)}" target="_blank"><img src="${escapeHtml(m.url)}" alt="Attachment"></a>`:m.type?.startsWith('video')?`<div class="media-item"><video src="${escapeHtml(m.url)}" controls playsinline></video></div>`:m.type?.startsWith('audio')?`<div class="media-item"><audio src="${escapeHtml(m.url)}" controls></audio></div>`:`<a class="media-item" href="${escapeHtml(m.url)}" target="_blank">Open file</a>`).join('')}</div>`;}
-function renderDetail(s){$('detailContent').innerHTML=`<section class="detail-hero"><div class="snag-meta"><span class="status-badge status-${s.status}">${statusLabel[s.status]}</span><span class="priority-badge priority-${s.priority}">${s.priority}</span><span>${escapeHtml(s.category)}</span></div>${mediaHtml(s.media)}<p class="detail-description">${escapeHtml(s.description)}</p><div class="detail-info-grid"><div class="info-card"><span>Area / location</span><strong>${escapeHtml(s.location||'—')}</strong></div><div class="info-card"><span>Assigned to</span><strong>${escapeHtml(s.assignee||'—')}</strong></div><div class="info-card"><span>Reported by</span><strong>${escapeHtml(s.createdBy||'—')}</strong></div><div class="info-card"><span>Created</span><strong>${fmt(s.createdAt)}</strong></div></div>${s.outcome?`<div class="info-card"><span>Resolved when</span><strong>${escapeHtml(s.outcome)}</strong></div>`:''}</section><section><h3>Status</h3><div class="status-controls">${Object.entries(statusLabel).map(([k,v])=>`<button type="button" data-status="${k}" class="${s.status===k?'selected':''}">${v}</button>`).join('')}<button type="button" data-archive="1">${s.archived?'Unarchive':'Archive'}</button></div></section><section><h3>Conversation & progress</h3><div class="timeline">${(s.updates||[]).slice().sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt)).map(u=>`<article class="timeline-entry"><div class="timeline-head"><strong>${escapeHtml(u.author)} · ${escapeHtml(u.role||'')}</strong><span>${fmt(u.createdAt)}</span></div>${u.text?`<p>${escapeHtml(u.text)}</p>`:''}${mediaHtml(u.media)}</article>`).join('')||'<div class="empty-inline">No updates yet.</div>'}</div></section><section class="composer"><textarea id="updateText" rows="3" placeholder="Add an instruction, update or reply…"></textarea><div class="capture-actions"><label class="capture-button">📎 Attach<input id="updateFile" type="file" accept="image/*,video/*,audio/*,.pdf" multiple hidden></label><button id="voiceButton" class="capture-button" type="button">🎙 Voice memo</button><button id="sendUpdate" class="primary-button" type="button">Send update</button></div><div id="updatePreview" class="media-preview-strip"></div></section>`;
-  $('detailContent').querySelectorAll('[data-status]').forEach(b=>b.onclick=()=>setStatus(s.id,b.dataset.status));$('detailContent').querySelector('[data-archive]').onclick=()=>toggleArchive(s.id);let updateFiles=[];const uf=$('updateFile');uf.onchange=()=>{updateFiles=[...uf.files];renderTempPreview(updateFiles,$('updatePreview'));};$('sendUpdate').onclick=()=>addUpdate(s.id,$('updateText').value,updateFiles);$('voiceButton').onclick=()=>recordVoice(s.id);
+function mediaHtml(items=[],context='snag'){if(!items.length)return'';return `<div class="media-grid">${items.map((m,i)=>m.type?.startsWith('image')?`<div class="media-item media-image-card"><a href="${escapeHtml(m.url)}" target="_blank"><img src="${escapeHtml(m.url)}" alt="Attachment"></a><div class="media-version-actions"><button type="button" data-annotate-media="${i}" data-media-context="${escapeHtml(context)}">✎ Mark up</button>${m.originalUrl?`<a href="${escapeHtml(m.originalUrl)}" target="_blank">View original</a>`:''}</div></div>`:m.type?.startsWith('video')?`<div class="media-item"><video src="${escapeHtml(m.url)}" controls playsinline></video></div>`:m.type?.startsWith('audio')?`<div class="media-item"><audio src="${escapeHtml(m.url)}" controls></audio></div>`:`<a class="media-item" href="${escapeHtml(m.url)}" target="_blank">Open file</a>`).join('')}</div>`;}
+function renderDetail(s){
+  $('detailContent').innerHTML=`
+    <section class="detail-hero compact-detail-hero">
+      <div class="snag-meta"><span class="status-badge status-${s.status}">${statusLabel[s.status]}</span><span class="priority-badge priority-${s.priority}">${s.priority}</span><span>${escapeHtml(s.category)}</span></div>
+      ${mediaHtml(s.media,'snag')}
+      ${s.description?`<p class="detail-description">${escapeHtml(s.description)}</p>`:''}
+    </section>
+    <section class="conversation-primary">
+      <div class="conversation-heading"><div><span class="section-kicker">SHARED THREAD</span><h3>Conversation & progress</h3></div><span class="activity-count">${(s.updates||[]).length} updates</span></div>
+      <section class="composer primary-composer">
+        <textarea id="updateText" rows="4" placeholder="Add an instruction, update or reply…"></textarea>
+        <div class="composer-actions">
+          <label class="capture-button">📎 Attach<input id="updateFile" type="file" accept="image/*,video/*,audio/*,.pdf" multiple hidden></label>
+          <button id="voiceButton" class="capture-button" type="button">🎙 Voice memo</button>
+          <button id="sendUpdate" class="primary-button send-update-wide" type="button">Send update</button>
+        </div>
+        <div id="updatePreview" class="media-preview-strip"></div>
+      </section>
+      <div class="timeline">${(s.updates||[]).slice().sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(u=>`<article class="timeline-entry"><div class="timeline-head"><strong>${escapeHtml(u.author)} · ${escapeHtml(u.role||'')}</strong><span>${fmt(u.createdAt)}</span></div>${u.text?`<p>${escapeHtml(u.text)}</p>`:''}${mediaHtml(u.media,'update:'+u.id)}</article>`).join('')||'<div class="empty-inline">No updates yet.</div>'}</div>
+    </section>
+    <section class="status-section"><h3>Status</h3><div class="status-controls">${Object.entries(statusLabel).map(([k,v])=>`<button type="button" data-status="${k}" class="${s.status===k?'selected':''}">${v}</button>`).join('')}<button type="button" data-archive="1">${s.archived?'Unarchive':'Archive'}</button></div></section>
+    <details class="issue-details">
+      <summary>Issue details</summary>
+      <div class="detail-info-grid">
+        <div class="info-card"><span>Area / location</span><strong>${escapeHtml(s.location||'—')}</strong></div>
+        <div class="info-card"><span>Assigned to</span><strong>${escapeHtml(s.assignee||'—')}</strong></div>
+        <div class="info-card"><span>Reported by</span><strong>${escapeHtml(s.createdBy||'—')}</strong></div>
+        <div class="info-card"><span>Created</span><strong>${fmt(s.createdAt)}</strong></div>
+      </div>
+      ${s.outcome?`<div class="info-card"><span>Resolved when</span><strong>${escapeHtml(s.outcome)}</strong></div>`:''}
+    </details>`;
+  $('detailContent').querySelectorAll('[data-status]').forEach(b=>b.onclick=()=>setStatus(s.id,b.dataset.status));
+  $('detailContent').querySelector('[data-archive]').onclick=()=>toggleArchive(s.id);
+  let updateFiles=[];const uf=$('updateFile');
+  uf.onchange=()=>{updateFiles=[...uf.files];renderTempPreview(updateFiles,$('updatePreview'));};
+  $('sendUpdate').onclick=()=>addUpdate(s.id,$('updateText').value,updateFiles);
+  $('voiceButton').onclick=()=>recordVoice(s.id);
+  $('detailContent').querySelectorAll('[data-annotate-media]').forEach(b=>b.onclick=()=>annotateExistingMedia(s.id,b.dataset.mediaContext,Number(b.dataset.annotateMedia)));
 }
-function renderTempPreview(files,host){host.innerHTML=files.map((f,i)=>`<div class="preview-chip">${f.type.startsWith('image')?`<img src="${URL.createObjectURL(f)}">`:f.type.startsWith('video')?`<video src="${URL.createObjectURL(f)}"></video>`:'♪'}<button type="button" data-i="${i}">×</button></div>`).join('');}
+
+function renderTempPreview(files,host){host.innerHTML=files.map((f,i)=>`<div class="preview-chip">${f.type.startsWith('image')?`<img src="${URL.createObjectURL(f)}"><button type="button" class="preview-annotate" data-annotate-file="${i}">✎</button>`:f.type.startsWith('video')?`<video src="${URL.createObjectURL(f)}"></video>`:'♪'}<button type="button" data-i="${i}">×</button></div>`).join('');host.querySelectorAll('[data-annotate-file]').forEach(b=>b.onclick=e=>{e.stopPropagation();openAnnotationForPending(files,Number(b.dataset.annotateFile),host)});}
 async function optimiseMediaFile(file){if(!file.type?.startsWith('image/')||file.type==='image/gif'||file.size<900000)return file;try{const bitmap=await createImageBitmap(file),max=2000,scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');canvas.width=Math.round(bitmap.width*scale);canvas.height=Math.round(bitmap.height*scale);canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.82));return blob?new File([blob],(file.name||'photo').replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'}):file}catch(e){console.warn('Photo compression failed',e);return file}}
 async function uploadToR2(file,pathPrefix){
   if(!window.SNAG_R2_API||!firebase?.auth?.currentUser)throw new Error('R2 upload is not configured');
@@ -69,7 +106,24 @@ async function uploadToR2(file,pathPrefix){
 }
 async function prepareMedia(files,pathPrefix){
   const result=[];
-  for(const original of files){const file=await optimiseMediaFile(original);if(window.SNAG_R2_API&&firebase?.auth?.currentUser)result.push(await uploadToR2(file,pathPrefix));else{if(file.type?.startsWith('video/'))throw new Error('Video needs cloud sync. Firebase is not connected yet.');if(file.size>2.5*1024*1024)throw new Error('Photo is too large for local mode. Reconnect Firebase and try again.');result.push(await fileToDataUrl(file));}}
+  for(const original of files){
+    const file=await optimiseMediaFile(original);
+    if(window.SNAG_R2_API&&firebase?.auth?.currentUser){
+      if(original._originalFile){
+        const base=await optimiseMediaFile(original._originalFile);
+        const originalMedia=await uploadToR2(base,pathPrefix+'/originals');
+        const annotated=await uploadToR2(file,pathPrefix);
+        annotated.originalUrl=originalMedia.url;annotated.originalKey=originalMedia.key;annotated.annotated=true;
+        result.push(annotated);
+      }else result.push(await uploadToR2(file,pathPrefix));
+    }else{
+      if(file.type?.startsWith('video/'))throw new Error('Video needs cloud sync. Firebase is not connected yet.');
+      if(file.size>2.5*1024*1024)throw new Error('Photo is too large for local mode. Reconnect Firebase and try again.');
+      const local=await fileToDataUrl(file);
+      if(original._originalFile){const o=await fileToDataUrl(await optimiseMediaFile(original._originalFile));local.originalUrl=o.url;local.annotated=true;}
+      result.push(local);
+    }
+  }
   return result;
 }
 async function createSnag(e){
@@ -96,6 +150,62 @@ function similarTo(text){const stop=new Set(['the','and','this','that','with','f
 function renderSimilar(){const text=`${$('snagTitleInput').value} ${$('snagDescriptionInput').value} ${$('snagLocationInput').value}`;const matches=similarTo(text);$('similarPanel').classList.toggle('hidden',!matches.length);$('similarResults').innerHTML=matches.map(x=>`<div class="similar-item"><strong>${escapeHtml(x.s.ref)} · ${escapeHtml(x.s.title)}</strong><div class="subtle">Resolved ${x.s.resolvedAt?fmt(x.s.resolvedAt):''} · ${escapeHtml(x.s.location||'')}</div></div>`).join('');}
 
 
+
+function loadImageSource(src){return new Promise((resolve,reject)=>{const img=new Image();img.crossOrigin='anonymous';img.onload=()=>resolve(img);img.onerror=reject;img.src=src;});}
+function annotationCanvas(){return $('annotationCanvas');}
+function redrawAnnotation(){
+  const canvas=annotationCanvas(),ctx=canvas.getContext('2d'),img=annotationState.image;if(!img)return;
+  ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);
+  for(const stroke of annotationState.history){ctx.strokeStyle=stroke.colour;ctx.lineWidth=Math.max(4,canvas.width/180);ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();stroke.points.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.stroke();}
+}
+async function openAnnotation(src,meta){
+  try{
+    annotationState={...annotationState,...meta,history:[],colour:'#ef4444',source:src};
+    const img=await loadImageSource(src);annotationState.image=img;
+    const canvas=annotationCanvas(),max=1800,scale=Math.min(1,max/img.naturalWidth);
+    canvas.width=Math.round(img.naturalWidth*scale);canvas.height=Math.round(img.naturalHeight*scale);
+    redrawAnnotation();$('annotateDialog').showModal();
+  }catch(e){console.error(e);toast('Could not open this image for markup');}
+}
+function openAnnotationForPending(files,index,host){const f=files[index];if(!f?.type?.startsWith('image/'))return;openAnnotation(URL.createObjectURL(f),{mode:'pending',files,index,host,originalFile:f._originalFile||f});}
+async function annotateExistingMedia(snagId,context,index){
+  const snag=state.snags.find(x=>x.id===snagId);if(!snag)return;
+  let item,update=null;
+  if(context.startsWith('update:')){const updateId=context.slice(7);update=(snag.updates||[]).find(u=>u.id===updateId);item=update?.media?.[index];}
+  else item=snag.media?.[index];
+  if(!item?.type?.startsWith('image/'))return;
+  await openAnnotation(item.url,{mode:'existing',snagId,context,index,item,updateId:update?.id||null,originalUrl:item.originalUrl||item.url});
+}
+function pointerPos(e,canvas){const r=canvas.getBoundingClientRect(),p=e.touches?.[0]||e;return{x:(p.clientX-r.left)*canvas.width/r.width,y:(p.clientY-r.top)*canvas.height/r.height};}
+function bindAnnotationCanvas(){
+  const canvas=annotationCanvas();let drawing=false,stroke=null;
+  const start=e=>{e.preventDefault();drawing=true;stroke={colour:annotationState.colour,points:[pointerPos(e,canvas)]};annotationState.history.push(stroke);};
+  const move=e=>{if(!drawing)return;e.preventDefault();stroke.points.push(pointerPos(e,canvas));redrawAnnotation();};
+  const end=e=>{if(!drawing)return;e?.preventDefault?.();drawing=false;redrawAnnotation();};
+  canvas.addEventListener('pointerdown',start);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end);
+}
+async function saveAnnotation(){
+  const canvas=annotationCanvas();const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.9));if(!blob)return toast('Could not save markup');
+  const annotated=new File([blob],`annotated-${Date.now()}.jpg`,{type:'image/jpeg'});
+  if(annotationState.mode==='pending'){
+    annotated._originalFile=annotationState.originalFile;
+    annotationState.files[annotationState.index]=annotated;
+    if(annotationState.files===pendingFiles)pendingFiles=annotationState.files;
+    renderTempPreview(annotationState.files,annotationState.host);
+    $('annotateDialog').close();toast('Markup saved · original preserved');return;
+  }
+  if(annotationState.mode==='existing'){
+    const snag=state.snags.find(x=>x.id===annotationState.snagId);if(!snag)return;
+    const uploaded=(await prepareMedia([Object.assign(annotated,{_originalFile:null})],`snag-projects/${selectedProjectId}/snags/${snag.id}/annotations`))[0];
+    uploaded.originalUrl=annotationState.originalUrl;uploaded.annotated=true;
+    if(annotationState.context.startsWith('update:')){
+      const u=(snag.updates||[]).find(x=>x.id===annotationState.updateId);u.media[annotationState.index]={...u.media[annotationState.index],...uploaded};await writeUpdate(snag,u);
+    }else{
+      snag.media[annotationState.index]={...snag.media[annotationState.index],...uploaded};await writeSnag(snag);
+    }
+    snag.updatedAt=now();saveState();$('annotateDialog').close();render();openDetail(snag.id);toast('Markup saved · original preserved');
+  }
+}
 function cameraDiag(message){const d=$('cameraDiagnostics');if(d)d.textContent=message||'';}
 function stopCameraTest(){
   if(cameraTestStream){cameraTestStream.getTracks().forEach(t=>t.stop());cameraTestStream=null;}
@@ -275,5 +385,5 @@ function disconnectFirebase(){unsubscribe?.();unsubscribe=null;firebase=null;loc
 function renderCloudDiagnostics(){if($('buildBadge'))$('buildBadge').textContent='v'+APP_BUILD;const t=cloudStatus.message||cloudStatus.state;if($('cloudDiagnostics'))$('cloudDiagnostics').textContent=t;if($('buildDialogCloud'))$('buildDialogCloud').textContent=t;if($('runningBuild'))$('runningBuild').textContent='v'+APP_BUILD;if($('buildDialogRunning'))$('buildDialogRunning').textContent='v'+APP_BUILD;const l=latestBuild?.build;if($('latestBuildState'))$('latestBuildState').textContent=l?(l===APP_BUILD?'· latest':'· update available'):'· latest unknown';if($('buildDialogLatest'))$('buildDialogLatest').textContent=l?'v'+l:'Unknown';}
 async function checkLatestBuild(){try{const r=await fetch('./version.json?t='+Date.now(),{cache:'no-store'});latestBuild=r.ok?await r.json():null}catch{latestBuild=null}renderCloudDiagnostics()}
 async function hardRefreshApp(){try{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('snag-')).map(k=>caches.delete(k)))}catch(e){console.warn(e)}location.reload()}
-function bind(){document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;render()});$('createProjectButton').onclick=()=>{const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));render();toast('Identity saved')};$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});$('buildBadge').onclick=()=>{$('buildDialog').showModal();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
+function bind(){bindAnnotationCanvas();$('annotationCancel').onclick=()=>$('annotateDialog').close();$('annotationSave').onclick=saveAnnotation;$('annotationUndo').onclick=()=>{annotationState.history.pop();redrawAnnotation()};$('annotationClear').onclick=()=>{annotationState.history=[];redrawAnnotation()};document.querySelectorAll('[data-annotation-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-annotation-tool]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');annotationState.colour=b.dataset.annotationTool==='yellow'?'#facc15':b.dataset.annotationTool==='black'?'#111827':'#ef4444'});document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;render()});$('createProjectButton').onclick=()=>{const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));render();toast('Identity saved')};$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});$('buildBadge').onclick=()=>{$('buildDialog').showModal();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
 bind();render();checkLatestBuild();const cfg=window.SNAG_FIREBASE_CONFIG||JSON.parse(localStorage.getItem(LS.firebase)||'null');if(cfg)initFirebase(cfg).then(render).catch(e=>{console.warn(e);firebase=null;if(cloudStatus.state!=='error')cloudStatus={state:'error',message:e?.code||e?.message||'Firebase connection failed'};render();});
