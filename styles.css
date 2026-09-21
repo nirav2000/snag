@@ -40,3 +40,6 @@
 @media(max-width:560px){.composer-actions{grid-template-columns:1fr 1fr}.send-update-wide{grid-column:1/-1}.conversation-primary{padding:13px}.annotation-modal{width:100vw;height:100dvh;border-radius:0}}
 
 .access-link-list{display:grid;gap:8px;margin-top:8px}.access-link-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px;border:1px solid var(--line);border-radius:12px}.access-link-row>div{display:grid;gap:2px}.access-link-row span{font-size:12px;color:var(--muted)}.share-admin-switch{align-self:end;min-height:44px}.settings-card textarea{width:100%;box-sizing:border-box}
+
+.attention-strip{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:12px 0 8px;padding:10px 12px;border-radius:14px;background:rgba(0,122,255,.07);font-size:13px}.attention-strip span{color:var(--muted)}
+.private-notes-list{display:grid;gap:10px}.private-note-card{padding:12px;border:1px solid var(--line);border-radius:14px;background:#fff}.private-note-card>div{display:flex;justify-content:space-between;gap:8px}.private-note-card span,.private-note-card small{font-size:12px;color:var(--muted)}.private-note-card p{white-space:pre-wrap;margin:8px 0}
