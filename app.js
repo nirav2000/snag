@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.22.1205';
+const APP_BUILD='2026.09.22.1235';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1'};
 const now=()=>new Date().toISOString();
@@ -455,6 +455,7 @@ function firebaseErrorMessage(e){
   return code||e?.message||'Firebase connection failed';
 }
 async function initFirebase(cfg){
+  const watchdog=setTimeout(()=>{if(cloudStatus.state==='starting'){cloudStatus={state:'error',message:'Firebase connection is taking too long · app is available locally · tap to retry'};render();}},18000);
   cloudStatus={state:'starting',message:'Loading Firebase…'};render();
   let appMod,fsMod,authMod,app,db,auth;
   try{
@@ -497,9 +498,9 @@ async function initFirebase(cfg){
 
     try{await subscribeFirebase()}catch(e){console.warn('Subscription start failed',e)}
     if(!launchInviteId)setTimeout(()=>maybeShowFirstGuide('owner'),700);
-    render();
+    clearTimeout(watchdog);render();
   }catch(e){
-    console.error('Firebase startup failed',e);
+    clearTimeout(watchdog);console.error('Firebase startup failed',e);
     const msg=firebaseErrorMessage(e);
     cloudStatus={state:'error',message:`${msg} · local copy remains available`};
     render();
@@ -554,7 +555,8 @@ const VERSION_LAB=[
 ];
 function renderVersionLab(){
   const host=$('versionLabList');if(!host)return;
-  host.innerHTML=VERSION_LAB.map(v=>`<a class="version-lab-row" href="./version-lab.html?ref=${encodeURIComponent(v.ref)}&build=${encodeURIComponent(v.build)}" target="_blank"><span><strong>${escapeHtml(v.label)}</strong><small>${escapeHtml(v.note)}</small></span><span>Open ↗</span></a>`).join('');
+  host.innerHTML=`<a class="version-lab-row stable-release-row" href="./version-lab.html?ref=stable&build=Stable%20release" target="_blank"><span><strong>Stable release</strong><small>Real-world version, isolated from development</small></span><span>Open ↗</span></a>`+
+  VERSION_LAB.map(v=>`<a class="version-lab-row" href="./version-lab.html?ref=${encodeURIComponent(v.ref)}&build=${encodeURIComponent(v.build)}" target="_blank"><span><strong>${escapeHtml(v.label)}</strong><small>${escapeHtml(v.note)}</small></span><span>Open ↗</span></a>`).join('');
 }
 function renderCloudDiagnostics(){if($('buildBadge'))$('buildBadge').textContent='v'+APP_BUILD;if($('mobileBuildBadge'))$('mobileBuildBadge').textContent='v'+APP_BUILD;const t=cloudStatus.message||cloudStatus.state;if($('cloudDiagnostics'))$('cloudDiagnostics').textContent=t;if($('buildDialogCloud'))$('buildDialogCloud').textContent=t;if($('runningBuild'))$('runningBuild').textContent='v'+APP_BUILD;if($('buildDialogRunning'))$('buildDialogRunning').textContent='v'+APP_BUILD;const l=latestBuild?.build;if($('latestBuildState'))$('latestBuildState').textContent=l?(l===APP_BUILD?'· latest':'· update available'):'· latest unknown';if($('buildDialogLatest'))$('buildDialogLatest').textContent=l?'v'+l:'Unknown';}
 async function checkLatestBuild(){try{const r=await fetch('./version.json?t='+Date.now(),{cache:'no-store'});latestBuild=r.ok?await r.json():null}catch{latestBuild=null}renderCloudDiagnostics()}
