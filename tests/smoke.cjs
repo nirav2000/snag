@@ -1,9 +1,9 @@
 const fs=require('fs');const assert=require('assert');
 const app=fs.readFileSync('app.js','utf8'),lab=fs.readFileSync('version-lab.html','utf8'),idx=fs.readFileSync('index.html','utf8');
-assert(app.includes("const APP_BUILD='2026.09.22.1735'"),'wrong app build');
-assert(idx.includes('2026.09.22.1735'),'index build mismatch');
+assert(app.includes("const APP_BUILD='2026.09.22.1755'"),'wrong app build');
+assert(idx.includes('2026.09.22.1755'),'index build mismatch');
 assert(lab.includes("versions/2026.09.21.1310"),'oldest archived build missing');
-assert(lab.includes("versions/2026.09.22.1645"),'latest frozen build missing');
+assert(lab.includes("versions/2026.09.22.1755"),'latest frozen build missing');
 assert(lab.includes("ref='develop'"),'?latest must resolve develop');
 assert(lab.includes("ref='stable'"),'?stable must resolve stable');
 console.log('Snag smoke tests passed');
@@ -11,3 +11,8 @@ assert(app.includes('firestoreRestSet'),'REST write helper missing');
 assert(app.includes('Create access link failed'),'share diagnostics missing');
 assert(!/createShareLink[\s\S]{0,2500}fsMod\.setDoc/.test(app),'share link still uses SDK setDoc');
 assert(/async function writeSnag[\s\S]{0,900}firestoreRestSet/.test(app),'snag writes are not REST-backed');
+
+assert(app.includes('writeMetricsText'),'write telemetry missing');
+assert(app.includes('async function syncSnagFull'),'full sync helper missing');
+assert(!/async function writeSnag[\s\S]{0,500}for\(const u/.test(app),'writeSnag rewrites history');
+assert(app.includes("'seen-state'"),'seen state telemetry missing');
