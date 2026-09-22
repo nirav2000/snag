@@ -187,3 +187,6 @@ body{background:var(--handover-paper);color:var(--handover-ink)}
  .handover-snag-row{grid-template-columns:29px 58px minmax(0,1fr) 12px!important}.handover-snag-row .snag-thumb{width:58px!important;height:54px!important}.handover-index{font-size:20px}.handover-title{font-size:15px}
  .handover-sort{font-size:10px}.project-photo-action{font-size:10px}
 }
+
+/* 1145 Version Lab */
+.handover-build-badge{font-size:10px;padding:5px 8px}.version-lab-section{border-top:1px solid var(--line);padding-top:14px}.version-lab-list{display:grid;gap:7px}.version-lab-row{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;text-decoration:none;color:inherit;background:#fff}.version-lab-row>span:first-child{display:grid;gap:2px}.version-lab-row small{color:var(--muted)}
