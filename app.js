@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.22.1615';
+const APP_BUILD='2026.09.22.1645';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1'};
 const now=()=>new Date().toISOString();
