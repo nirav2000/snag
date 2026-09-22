@@ -2,17 +2,61 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function member(projectId) {
-      return signedIn() && exists(/databases/$(database)/documents/projects/$(projectId)/members/$(request.auth.uid));
+    function projectDoc(projectId) {
+      return get(/databases/$(database)/documents/snag_projects/$(projectId));
     }
-    match /projects/{projectId} {
-      allow read: if member(projectId);
-      allow create: if signedIn();
-      allow update: if member(projectId);
-      match /members/{uid} { allow read: if member(projectId); allow write: if signedIn() && (request.auth.uid == uid || member(projectId)); }
+    function isOwner(projectId) {
+      return signedIn() && projectDoc(projectId).data.ownerUid == request.auth.uid;
+    }
+    function isMember(projectId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/snag_projects/$(projectId)/members/$(request.auth.uid));
+    }
+    function memberData(projectId) {
+      return get(/databases/$(database)/documents/snag_projects/$(projectId)/members/$(request.auth.uid)).data;
+    }
+    function isAdmin(projectId) {
+      return isOwner(projectId) || (isMember(projectId) && memberData(projectId).admin == true);
+    }
+
+    match /snag_projects/{projectId} {
+      // New owner projects may be created only for the signed-in identity.
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow read: if isOwner(projectId) || isMember(projectId);
+      allow update: if isOwner(projectId) || isAdmin(projectId);
+      allow delete: if isOwner(projectId);
+
+      match /members/{uid} {
+        allow read: if isOwner(projectId) || isMember(projectId);
+        // Owner can create/restore their own membership. Invitees can create
+        // only their own membership after presenting an active invite in-app.
+        allow create: if signedIn() && request.auth.uid == uid &&
+          (isOwner(projectId) || request.resource.data.uid == request.auth.uid);
+        allow update: if isOwner(projectId) || (signedIn() && request.auth.uid == uid);
+        allow delete: if isOwner(projectId) || (signedIn() && request.auth.uid == uid);
+        match /seen/{seenId} {
+          allow read, write: if signedIn() && request.auth.uid == uid;
+        }
+      }
+
+      match /invites/{inviteId} {
+        // Active invite documents must be readable before membership exists.
+        allow read: if signedIn();
+        allow create, update, delete: if isAdmin(projectId);
+      }
+
       match /snags/{snagId} {
-        allow read, write: if member(projectId);
-        match /updates/{updateId} { allow read, write: if member(projectId); }
+        allow read, write: if isOwner(projectId) || isMember(projectId);
+        match /updates/{updateId} {
+          allow read, write: if isOwner(projectId) || isMember(projectId);
+        }
+      }
+
+      match /private_notes/{noteId} {
+        allow create: if signedIn() && isMember(projectId) &&
+          request.resource.data.authorUid == request.auth.uid;
+        allow read, update, delete: if signedIn() && isMember(projectId) &&
+          resource.data.authorUid == request.auth.uid;
       }
     }
   }
