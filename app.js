@@ -470,14 +470,14 @@ function recordWriteMetric(op,status,path){
   const day=new Date().toISOString().slice(0,10),m=writeMetrics();
   if(m.day!==day){m.day=day;m.attempts=0;m.success=0;m.failed=0;m.byOp={}}
   const k=op||'other',row=m.byOp[k]||(m.byOp[k]={attempts:0,success:0,failed:0,lastPath:'',lastAt:''});
-  if(status==='attempt'){m.attempts++;row.attempts++}else{m[status]=(m[status]||0)+1;row[status]=(row[status]||0)+1}
+  if(status==='attempt'){m.attempts++;row.attempts++;window.FirebaseUsageMonitor?.write(1,op,'snag')}else{m[status]=(m[status]||0)+1;row[status]=(row[status]||0)+1}
   row.lastPath=path;row.lastAt=now();localStorage.setItem(LS.writeMetrics,JSON.stringify(m));
 }
 function writeMetricsText(){
   const m=writeMetrics(),rows=Object.entries(m.byOp||{}).sort((x,y)=>y[1].attempts-x[1].attempts).slice(0,6);
   return 'Today: '+(m.attempts||0)+' attempts · '+(m.success||0)+' succeeded · '+(m.failed||0)+' failed'+(rows.length?' · '+rows.map(([k,v])=>k+' '+v.attempts).join(' · '):'');
 }
-async function firestoreRest(path,{method='GET',data=null,mask=null,op='other'}={}){
+async function firestoreRest(path,{method='GET',data=null,mask=null,op='other'}={}){if(method==='GET')window.FirebaseUsageMonitor?.read(1,op==='other'?'firestore-rest':op,'snag');
   if(!firebase?.auth?.currentUser)throw new Error('Firebase authentication required');
   const token=await firebase.auth.currentUser.getIdToken();
   const projectId=window.SNAG_FIREBASE_CONFIG?.projectId||'kk-syllabus';
