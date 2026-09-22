@@ -1,7 +1,47 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Snag Version Lab</title><style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#111827;color:white}.bar{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;gap:10px}.bar a{color:white}.msg{padding:24px;max-width:680px;margin:auto}.launch{display:inline-block;background:white;color:#111827!important;padding:12px 16px;border-radius:12px;text-decoration:none;font-weight:700}</style></head><body><div class="bar"><strong id="title">Version Lab</strong><a href="./">Current development</a></div><div class="msg"><p>Archived versions are opened directly from their immutable GitHub snapshot, so the selected version cannot silently become the current app.</p><a id="launch" class="launch">Open selected version</a><p><small>Version Lab is for comparison. The stable branch is the version intended for real-world use.</small></p></div><script>
-const p=new URLSearchParams(location.search),ref=p.get('ref')||'stable',build=p.get('build')||ref;
-document.getElementById('title').textContent='Version Lab · '+build;
-const u='https://htmlpreview.github.io/?https://raw.githubusercontent.com/nirav2000/snag/'+encodeURIComponent(ref)+'/index.html';
-document.getElementById('launch').href=u;
-location.replace(u);
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Snag Version Lab</title>
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;background:#111827;color:white}
+.bar{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;gap:10px;box-sizing:border-box}
+.bar a{color:white;text-decoration:none}.frame{height:calc(100vh - 52px)}iframe{width:100%;height:100%;border:0;background:white}
+.error{padding:24px;max-width:720px;margin:auto}.error code{background:#1f2937;padding:2px 5px;border-radius:4px}
+</style></head><body>
+<div class="bar"><strong id="title">Version Lab</strong><span><a href="./?latest">Latest</a> · <a href="./?stable">Stable</a> · <a href="./">Current</a></span></div>
+<div class="frame"><iframe id="frame" allow="camera;microphone;clipboard-read;clipboard-write"></iframe></div><div id="err" class="error" hidden></div>
+<script>
+const versions=[{"build":"2026.09.22.1615","ref":"075b901e912b236559dd6ce9194be0c3209a542a"},{"build":"2026.09.22.1545","ref":"e58621ef0df1c5e0d3584e1e9a2caf37a2476118"},{"build":"2026.09.22.1510","ref":"d4fc666f930ba06947481005c57d17d389819f05"},{"build":"2026.09.22.1435","ref":"bb9da8cd5505348eea34fb737c2f538cae9b80fa"},{"build":"2026.09.22.1410","ref":"1a9ad5ce7de7fbd08853a04aa18b9d45a973fd1d"},{"build":"2026.09.22.1345","ref":"d8d1a6e05564979777eeded2a39bb1081c0447e3"},{"build":"2026.09.22.1325","ref":"47ab414ff4e1d8776ad684a9c94c0679c5dd861e"},{"build":"2026.09.22.1305","ref":"a3905367debb869326fd7e407ac77545d13f0910"},{"build":"2026.09.22.1235","ref":"484e15d004784ed99b218e3a47a7dd7f62950d53"},{"build":"2026.09.22.1205","ref":"f8eebcee5192be2efeb10073c9bb2e7907744aac"},{"build":"2026.09.22.1145","ref":"f0340aa92ce61e535b9dc2fe2bbc6870975899db"},{"build":"2026.09.22.1115","ref":"31c45d379ae9b0c60d6631105456df160203ba72"},{"build":"2026.09.21.1930","ref":"0be2c35c91f62e52190625fc38a4b0ba7b1e9321"},{"build":"2026.09.21.1905","ref":"3b31372b8bae445118c8b4bcf063a94bc6b7b542"},{"build":"2026.09.21.1835","ref":"b524ec9af9cf38ebb0e2410461b5dbcac30e0d0c"},{"build":"2026.09.21.1815","ref":"3da8b61b8bcd5bfbd809fcd96e7ac13e6a08aa0c"},{"build":"2026.09.21.1755","ref":"50da66392b4f1c6bd8203d941b84677242b5951c"},{"build":"2026.09.21.1745","ref":"640921c3600150b3bff62fdbf683357090fbe637"},{"build":"2026.09.21.1735","ref":"218442999dfd4431f574c69ab8a0a70814405cbd"},{"build":"2026.09.21.1725","ref":"dc169e44466d1f2c5d415fd6723800510e088217"},{"build":"2026.09.21.1715","ref":"4145a1f255a8da9e79159e7aeb71e74394d2fdd0"},{"build":"2026.09.21.1635","ref":"ed5d2669d44220c4b5483d515f419f9328601bcb"},{"build":"2026.09.21.1605","ref":"5babe749c8350e834faacb6bd0d46618b2f39f8c"},{"build":"2026.09.21.1535","ref":"0958627899d5464d0753a799ba0e76ce2a8b70c1"},{"build":"2026.09.21.1500","ref":"ff8c34ecd9e3dab2cc4282108eb16800807b882c"}];
+const p=new URLSearchParams(location.search);
+let ref='',label='';
+if(p.has('latest')){ref='develop';label='Latest development'}
+else if(p.has('stable')){ref='stable';label='Stable release'}
+else if(p.get('v')||p.get('version')){const wanted=p.get('v')||p.get('version'),hit=versions.find(x=>x.build===wanted);if(hit){ref=hit.ref;label='v'+hit.build}}
+else if(p.get('ref')){ref=p.get('ref');label=p.get('build')||ref}
+else{ref='develop';label='Latest development'}
+document.getElementById('title').textContent='Version Lab · '+label;
+
+async function loadText(path){
+  const u='https://raw.githubusercontent.com/nirav2000/snag/'+encodeURIComponent(ref)+'/'+path+'?t='+Date.now();
+  const r=await fetch(u,{cache:'no-store'});if(!r.ok)throw new Error(path+' returned '+r.status);return r.text();
+}
+(async()=>{
+  try{
+    const [html,css,notesCss,cfg,app,notes]=await Promise.all([
+      loadText('index.html'),loadText('styles.css'),loadText('notes.css'),loadText('firebase-config.js'),loadText('app.js'),loadText('notes.js')
+    ]);
+    let out=html;
+    out=out.replace(/<link[^>]+href=["']styles\.css[^"']*["'][^>]*>/i,'<style>'+css.replace(/<\/style/gi,'<\\/style')+'</style>');
+    out=out.replace(/<link[^>]+href=["']notes\.css[^"']*["'][^>]*>/i,'<style>'+notesCss.replace(/<\/style/gi,'<\\/style')+'</style>');
+    out=out.replace(/<script[^>]+src=["']firebase-config\.js[^"']*["'][^>]*><\/script>/i,'<script>'+cfg.replace(/<\/script/gi,'<\\/script')+'<\/script>');
+    out=out.replace(/<script[^>]+type=["']module["'][^>]+src=["']app\.js[^"']*["'][^>]*><\/script>/i,'');
+    out=out.replace(/<script[^>]+type=["']module["'][^>]+src=["']notes\.js[^"']*["'][^>]*><\/script>/i,'');
+    out=out.replace(/<script>if\(["']serviceWorker["'][\s\S]*?<\/script>/gi,'');
+    out=out.replace(/<script>\(async\(\)=>\{[\s\S]*?Version check failed[\s\S]*?<\/script>/gi,'');
+    const appUrl=URL.createObjectURL(new Blob([app],{type:'text/javascript'}));
+    const notesUrl=URL.createObjectURL(new Blob([notes],{type:'text/javascript'}));
+    out=out.replace('</body>','<script type="module" src="'+appUrl+'"><\/script><script type="module" src="'+notesUrl+'"><\/script></body>');
+    document.getElementById('frame').srcdoc=out;
+  }catch(e){
+    document.querySelector('.frame').hidden=true;
+    const box=document.getElementById('err');box.hidden=false;box.innerHTML='<h2>Version could not be loaded</h2><p>'+String(e.message||e)+'</p><p>Requested ref: <code>'+ref+'</code></p>';
+  }
+})();
 </script></body></html>
