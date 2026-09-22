@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.22.1705';
+const APP_BUILD='2026.09.22.1735';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1'};
 const now=()=>new Date().toISOString();
@@ -366,30 +366,34 @@ async function shareProject(){
 }
 async function createShareLink(){
   if(!firebase?.auth?.currentUser)return toast('Cloud sharing is not connected yet');
-  const btn=$('createShareLinkButton');btn.disabled=true;btn.textContent='Creating…';
+  const btn=$('createShareLinkButton');btn.disabled=true;btn.textContent='Creating…';$('shareWarning').classList.add('hidden');
   try{
-    const {fsMod,db,auth}=firebase,projectRef=fsMod.doc(db,'snag_projects',selectedProjectId);
-    const snap=await fsMod.getDoc(projectRef);
-    if(!snap.exists())throw new Error('Project is not available in the cloud');
-    if(snap.data()?.ownerUid!==auth.currentUser.uid)throw new Error('Only the project owner can create access links');
+    const auth=firebase.auth,projectDoc=await firestoreRestGet(`snag_projects/${selectedProjectId}`);
+    if(!projectDoc?.ownerUid)throw new Error('Project is not available in the cloud');
+    if(projectDoc.ownerUid!==auth.currentUser.uid)throw new Error('Only the project owner can create access links');
     const inviteId=randomCapability(),label=$('shareLabelInput').value.trim()||'Contractor access',role=$('shareRoleInput').value,admin=$('shareAdminInput').checked;
-    await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:true,label,role,admin,persistent:true,createdAt:now(),createdBy:auth.currentUser.uid});
+    await firestoreRestSet(`snag_projects/${selectedProjectId}/invites/${inviteId}`,{active:true,label,role,admin,persistent:true,createdAt:now(),createdBy:auth.currentUser.uid});
     const u=new URL(location.origin+location.pathname);u.searchParams.set('project',selectedProjectId);u.searchParams.set('invite',inviteId);
     $('shareLinkInput').value=u.toString();await renderAccessLinks();toast('Unique access link created');
-  }catch(e){console.error(e);$('shareWarning').textContent=`${firebaseErrorMessage(e)}${e?.code?' · '+e.code:''}`;$('shareWarning').classList.remove('hidden');toast(firebaseErrorMessage(e))}
-  finally{btn.disabled=false;btn.textContent='Create unique link'}
+  }catch(e){
+    console.error('Create access link failed',e);
+    $('shareWarning').textContent=`${firebaseErrorMessage(e)}${e?.code?' · '+e.code:''}`;
+    $('shareWarning').classList.remove('hidden');toast(firebaseErrorMessage(e));
+  }finally{btn.disabled=false;btn.textContent='Create unique link'}
 }
 async function renderAccessLinks(){
   const host=$('accessLinkList');if(!host||!firebase?.auth?.currentUser)return;
   try{
-    const {fsMod,db}=firebase,q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'invites'));
-    const snap=await fsMod.getDocs(q);const rows=[];snap.forEach(d=>rows.push({id:d.id,...d.data()}));
+    const rows=await firestoreRestList(`snag_projects/${selectedProjectId}/invites`);
     rows.sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
     host.innerHTML=rows.length?rows.map(x=>`<div class="access-link-row"><div><strong>${escapeHtml(x.label||'Access link')}</strong><span>${escapeHtml(x.role||'contractor')}${x.admin?' · Admin':''} · ${x.active?'Active':'Revoked'}</span></div>${x.active?`<button type="button" data-revoke-invite="${x.id}" class="secondary-button">Revoke</button>`:''}</div>`).join(''):'<p class="subtle">No access links yet.</p>';
     host.querySelectorAll('[data-revoke-invite]').forEach(b=>b.onclick=()=>revokeInvite(b.dataset.revokeInvite));
-  }catch(e){host.innerHTML='<p class="subtle">Only the project owner can manage access links.</p>';}
+  }catch(e){console.error('Access link list failed',e);host.innerHTML=`<p class="subtle">${escapeHtml(firebaseErrorMessage(e))}</p>`;}
 }
-async function revokeInvite(inviteId){const {fsMod,db}=firebase;await fsMod.updateDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:false,revokedAt:now()});await renderAccessLinks();toast('Access link revoked');}
+async function revokeInvite(inviteId){
+  try{await firestoreRestPatch(`snag_projects/${selectedProjectId}/invites/${inviteId}`,{active:false,revokedAt:now()},['active','revokedAt']);await renderAccessLinks();toast('Access link revoked')}
+  catch(e){console.error('Revoke invite failed',e);toast(firebaseErrorMessage(e))}
+}
 function randomCapability(){const b=new Uint8Array(32);crypto.getRandomValues(b);return btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
 async function connectFirebase(){try{const raw=$('firebaseConfigInput').value.trim();const cfg=raw?JSON.parse(raw):window.SNAG_FIREBASE_CONFIG;if(!cfg)throw new Error('Missing config');localStorage.setItem(LS.firebase,JSON.stringify(cfg));await initFirebase(cfg);toast('Firebase connected');render();}catch(e){console.error(e);toast('Firebase config could not be connected');}}
 
@@ -440,6 +444,50 @@ function firebaseErrorMessage(e){
   if(code==='auth/network-request-failed')return 'Firebase network request failed';
   return code||e?.message||'Firebase connection failed';
 }
+function firestoreValue(v){
+  if(v===null||v===undefined)return {nullValue:null};
+  if(typeof v==='string')return {stringValue:v};
+  if(typeof v==='boolean')return {booleanValue:v};
+  if(typeof v==='number')return Number.isInteger(v)?{integerValue:String(v)}:{doubleValue:v};
+  if(Array.isArray(v))return {arrayValue:{values:v.map(firestoreValue)}};
+  if(typeof v==='object'){const fields={};for(const [k,val] of Object.entries(v)){if(val!==undefined)fields[k]=firestoreValue(val)}return {mapValue:{fields}}}
+  return {stringValue:String(v)};
+}
+function firestoreFields(obj){const fields={};for(const [k,v] of Object.entries(obj||{})){if(v!==undefined)fields[k]=firestoreValue(v)}return fields}
+function fromFirestoreValue(v){
+  if(!v)return null;if('stringValue'in v)return v.stringValue;if('booleanValue'in v)return v.booleanValue;
+  if('integerValue'in v)return Number(v.integerValue);if('doubleValue'in v)return v.doubleValue;if('nullValue'in v)return null;
+  if('arrayValue'in v)return (v.arrayValue.values||[]).map(fromFirestoreValue);
+  if('mapValue'in v){const o={};for(const [k,x] of Object.entries(v.mapValue.fields||{}))o[k]=fromFirestoreValue(x);return o}
+  if('timestampValue'in v)return v.timestampValue;return null;
+}
+function fromFirestoreDoc(doc){const o={id:(doc?.name||'').split('/').pop()};for(const [k,v] of Object.entries(doc?.fields||{}))o[k]=fromFirestoreValue(v);return o}
+async function firestoreRest(path,{method='GET',data=null,mask=null}={}){
+  if(!firebase?.auth?.currentUser)throw new Error('Firebase authentication required');
+  const token=await firebase.auth.currentUser.getIdToken();
+  const projectId=window.SNAG_FIREBASE_CONFIG?.projectId||'kk-syllabus';
+  let url=`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${path.split('/').map(encodeURIComponent).join('/')}`;
+  if(mask?.length){const q=mask.map(x=>'updateMask.fieldPaths='+encodeURIComponent(x)).join('&');url+=(url.includes('?')?'&':'?')+q}
+  const options={method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'}};
+  if(data!==null)options.body=JSON.stringify({fields:firestoreFields(data)});
+  const response=await fetch(url,options);
+  let payload=null;try{payload=await response.json()}catch{}
+  if(!response.ok){const err=new Error(payload?.error?.message||`Firestore REST ${response.status}`);err.code=payload?.error?.status||String(response.status);throw err}
+  return payload;
+}
+async function firestoreRestSet(path,data){return firestoreRest(path,{method:'PATCH',data})}
+async function firestoreRestPatch(path,data,mask){return firestoreRest(path,{method:'PATCH',data,mask})}
+async function firestoreRestGet(path){return fromFirestoreDoc(await firestoreRest(path))}
+async function firestoreRestList(path){
+  if(!firebase?.auth?.currentUser)throw new Error('Firebase authentication required');
+  const token=await firebase.auth.currentUser.getIdToken(),projectId=window.SNAG_FIREBASE_CONFIG?.projectId||'kk-syllabus';
+  const url=`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${path.split('/').map(encodeURIComponent).join('/')}?pageSize=100`;
+  const response=await fetch(url,{headers:{Authorization:`Bearer ${token}`}});
+  let payload=null;try{payload=await response.json()}catch{}
+  if(!response.ok){const err=new Error(payload?.error?.message||`Firestore REST ${response.status}`);err.code=payload?.error?.status||String(response.status);throw err}
+  return (payload?.documents||[]).map(fromFirestoreDoc);
+}
+
 async function initFirebase(cfg){
   const run=++firebaseRun;resetCloudDiag();
   const watchdog=setTimeout(()=>{if(run===firebaseRun&&cloudStatus.state==='starting'){const active=cloudDiag.find(x=>x.state==='running');if(active)diagStep(active.name,'error','No response after 18 seconds');cloudStatus={state:'error',message:`Stopped at: ${active?.name||'unknown stage'} · tap for diagnostics`};render();}},18000);
@@ -495,7 +543,7 @@ async function joinInvitedProject(projectId,inviteId){
   if(!inviteSnap.exists()||inviteSnap.data().active!==true)throw new Error('Invite is invalid or has been revoked');
   const invite=inviteSnap.data(),role=invite.role||'contractor';
   rememberSharedAccess(projectId,inviteId,role);
-  currentMember={uid:auth.currentUser.uid,name:profile.name,role,admin:invite.admin===true,label:invite.label||'',inviteId,joinedAt:now()};await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'members',auth.currentUser.uid),currentMember,{merge:true});
+  currentMember={uid:auth.currentUser.uid,name:profile.name,role,admin:invite.admin===true,label:invite.label||'',inviteId,joinedAt:now()};await firestoreRestSet(`snag_projects/${projectId}/members/${auth.currentUser.uid}`,currentMember);
   const pSnap=await fsMod.getDoc(fsMod.doc(db,'snag_projects',projectId));
   if(!pSnap.exists())throw new Error('Project not found');
   const p={id:projectId,...pSnap.data()};
@@ -527,20 +575,27 @@ async function ensureProjectRemote(){
       return;
     }
     diagStep('Membership write','running','Restoring missing owner membership');
-    await withTimeout(fsMod.setDoc(memberRef,{uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()},{merge:true}),9000,'Membership write');
+    await firestoreRestSet(`snag_projects/${p.id}/members/${auth.currentUser.uid}`,{uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()});
     diagStep('Membership write','ok','Owner membership restored');
     return;
   }
 
   diagStep('Project owner write','running','Creating project');
-  await withTimeout(fsMod.setDoc(ref,{...p,ownerUid:auth.currentUser.uid,updatedAt:now()},{merge:true}),9000,'Project owner write');
+  await firestoreRestSet(`snag_projects/${p.id}`,{...p,ownerUid:auth.currentUser.uid,updatedAt:now()});
   diagStep('Project owner write','ok','Project created');
   diagStep('Membership write','running','Creating owner membership');
   await withTimeout(fsMod.setDoc(memberRef,{uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()},{merge:true}),9000,'Membership write');
   diagStep('Membership write','ok','Owner membership created');
 }
-async function writeSnag(s){const {fsMod,db}=firebase;const clean={...s};delete clean.updates;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),clean,{merge:true});for(const u of s.updates||[])await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});}
-async function writeUpdate(s,u){const {fsMod,db}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),{updatedAt:s.updatedAt},{merge:true});}
+async function writeSnag(s){
+  const clean={...s};delete clean.updates;
+  await firestoreRestSet(`snag_projects/${selectedProjectId}/snags/${s.id}`,clean);
+  for(const u of s.updates||[])await firestoreRestSet(`snag_projects/${selectedProjectId}/snags/${s.id}/updates/${u.id}`,u);
+}
+async function writeUpdate(s,u){
+  await firestoreRestSet(`snag_projects/${selectedProjectId}/snags/${s.id}/updates/${u.id}`,u);
+  await firestoreRestPatch(`snag_projects/${selectedProjectId}/snags/${s.id}`,{updatedAt:s.updatedAt},['updatedAt']);
+}
 async function subscribeFirebase(){if(!firebase?.auth?.currentUser)return;unsubscribe?.();await loadCurrentMember();await subscribeSeenState();const {fsMod,db}=firebase;const q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'snags'),fsMod.orderBy('updatedAt','desc'));unsubscribe=fsMod.onSnapshot(q,async snap=>{for(const d of snap.docs){const data={id:d.id,...d.data()};const us=await fsMod.getDocs(fsMod.collection(db,'snag_projects',selectedProjectId,'snags',d.id,'updates'));data.updates=us.docs.map(x=>({id:x.id,...x.data()}));const i=state.snags.findIndex(x=>x.id===data.id);if(i>=0){if(!dirtyMap()[data.id])state.snags[i]=data;}else state.snags.push(data);}saveState();render();if(detailId)openDetail(detailId);},e=>console.warn('Firestore listener',e));}
 
 async function loadCurrentMember(){if(!firebase?.auth?.currentUser)return;try{const {fsMod,db,auth}=firebase,s=await fsMod.getDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'members',auth.currentUser.uid));currentMember=s.exists()?{id:s.id,...s.data()}:null}catch{currentMember=null}}
@@ -550,7 +605,7 @@ function subscribePrivateNotes(){
   const q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'private_notes'),fsMod.orderBy('createdAt','desc'));
   privateNotesUnsubscribe=fsMod.onSnapshot(q,snap=>{const notes=snap.docs.map(d=>({id:d.id,...d.data()})).filter(n=>n.authorUid===auth.currentUser.uid);$('privateNotesList').innerHTML=notes.length?notes.map(n=>`<article class="private-note-card"><div><strong>${escapeHtml(n.authorName||'Note')}</strong><span>${fmt(n.createdAt)}</span></div><p>${escapeHtml(n.text)}</p>${n.snagRef?`<small>${escapeHtml(n.snagRef)}</small>`:''}</article>`).join(''):'<p class="subtle">No private notes yet.</p>';},e=>{$('privateNotesList').innerHTML='<p class="subtle">Private notes are unavailable until the security update finishes deploying.</p>';console.warn(e)});
 }
-async function addPrivateNote(){const text=$('privateNoteText').value.trim();if(!text)return;const {fsMod,db,auth}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'private_notes',uid()),{text,authorUid:auth.currentUser.uid,authorName:profile.name,createdAt:now()});$('privateNoteText').value='';}
+async function addPrivateNote(){const text=$('privateNoteText').value.trim();if(!text)return;const {auth}=firebase;await firestoreRestSet(`snag_projects/${selectedProjectId}/private_notes/${uid()}`,{text,authorUid:auth.currentUser.uid,authorName:profile.name,createdAt:now()});$('privateNoteText').value='';}
 function disconnectFirebase(){unsubscribe?.();unsubscribe=null;firebase=null;localStorage.removeItem(LS.firebase);toast('Using local mode');render();}
 const VERSION_LAB=[
   {label:'Handover 1115',build:'2026.09.22.1115',ref:'c227e76ef12324ff0dccecce49047a5bfa799255',note:'Premium Handover design'},
