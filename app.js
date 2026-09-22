@@ -1,6 +1,6 @@
-const APP_BUILD='2026.09.22.1735';
+const APP_BUILD='2026.09.22.1755';
 const FIREBASE_VERSION='12.2.1';
-const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1'};
+const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1',writeMetrics:'snag-recorder-write-metrics-v1'};
 const now=()=>new Date().toISOString();
 const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const escapeHtml=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -48,9 +48,11 @@ function isUnread(s){const seen=seenState[s.id];return !seen||new Date(lastActiv
 function unreadSnags(){return visibleProjectSnags().filter(isUnread);}
 async function markSnagSeen(snagId){
   const s=state.snags.find(x=>x.id===snagId);if(!s)return;
-  const at=lastActivityAt(s);seenState[snagId]=at;renderUnreadIndicators();
+  const at=lastActivityAt(s),prior=seenState[snagId];
+  if(prior&&new Date(prior)>=new Date(at)){renderUnreadIndicators();return}
+  seenState[snagId]=at;renderUnreadIndicators();
   if(!firebase?.auth?.currentUser)return;
-  try{const {fsMod,db,auth}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'members',auth.currentUser.uid,'seen',snagId),{snagId,lastSeenAt:at,updatedAt:now()},{merge:true});}catch(e){console.warn('Could not save seen state',e)}
+  try{const me=firebase.auth.currentUser.uid;await firestoreRestSet(`snag_projects/${selectedProjectId}/members/${me}/seen/${snagId}`,{snagId,lastSeenAt:at,updatedAt:now()},'seen-state')}catch(e){console.warn('Could not save seen state',e)}
 }
 function renderUnreadIndicators(){
   const n=unreadSnags().length;
@@ -232,12 +234,12 @@ async function createSnag(e){
   const title=enteredTitle||(description.split(/\n|[.!?]/)[0].trim().slice(0,90)||mediaLead),id=uid(),t=now(),files=[...pendingFiles];
   const snag={id,projectId:selectedProjectId,ref:nextRef(),title,category:$('snagCategoryInput').value,priority:$('snagPriorityInput').value,location:$('snagLocationInput').value.trim(),assignee:$('snagAssigneeInput').value.trim(),description,outcome:$('snagOutcomeInput').value.trim(),status:'open',archived:false,createdAt:t,updatedAt:t,createdBy:profile.name,media:[],mediaSync:files.length?'pending':'none',updates:[{id:uid(),type:'note',text:'Snag recorded.',author:profile.name,role:profile.role,createdAt:t,media:[]}]};
   state.snags.push(snag);markDirty(id);saveState();$('snagDialog').close();$('snagForm').reset();pendingFiles=[];$('newMediaPreview').innerHTML='';render();openDetail(id);toast(files.length?'Snag saved · photo syncing':'Snag saved');
-  if(firebase){try{await writeSnag(snag);clearDirty(id)}catch(err){console.error('Snag cloud write',err);markDirty(id);toast('Saved locally · cloud sync pending')}}
+  if(firebase){try{await writeSnag(snag);if(snag.updates?.[0])await writeUpdateDoc(snag,snag.updates[0]);clearDirty(id)}catch(err){console.error('Snag cloud write',err);markDirty(id);toast('Saved locally · cloud sync pending')}}
   if(files.length){try{const media=await prepareMedia(files,`snag-projects/${selectedProjectId}/snags/${id}`);snag.media=media;snag.mediaSync='synced';snag.updatedAt=now();markDirty(id);saveState();render();if(firebase){await writeSnag(snag);clearDirty(id)}}
     catch(err){console.error('Media sync',err);snag.mediaSync='error';snag.mediaSyncError=firebaseErrorMessage(err);saveState();render();toast('Snag saved · photo sync needs retry')}}
 }
 async function addUpdate(id,text,files=[],evidenceType='progress'){text=text.trim();if(!text&&!files.length)return;const s=state.snags.find(x=>x.id===id);const u={id:uid(),type:'note',evidenceType,text,author:profile.name,role:profile.role,createdAt:now(),media:await prepareMedia(files,`snag-projects/${selectedProjectId}/snags/${id}/updates`)};s.updates=s.updates||[];s.updates.push(u);s.updatedAt=u.createdAt;markDirty(s.id);saveState();if(firebase){await writeUpdate(s,u);clearDirty(s.id);}await markSnagSeen(id);render();openDetail(id);toast('Update added');}
-async function setStatus(id,status){const s=state.snags.find(x=>x.id===id);if(!s||s.status===status)return;s.status=status;s.updatedAt=now();s.resolvedAt=status==='resolved'?s.updatedAt:null;markDirty(s.id);s.updates.push({id:uid(),type:'status',text:`Status changed to ${statusLabel[status]}.`,author:profile.name,role:profile.role,createdAt:s.updatedAt,media:[]});saveState();if(firebase){await writeSnag(s);clearDirty(s.id);}await markSnagSeen(id);render();openDetail(id);toast(`Moved to ${statusLabel[status]}`);}
+async function setStatus(id,status){const s=state.snags.find(x=>x.id===id);if(!s||s.status===status)return;s.status=status;s.updatedAt=now();s.resolvedAt=status==='resolved'?s.updatedAt:null;markDirty(s.id);const statusUpdate={id:uid(),type:'status',text:`Status changed to ${statusLabel[status]}.`,author:profile.name,role:profile.role,createdAt:s.updatedAt,media:[]};s.updates.push(statusUpdate);saveState();if(firebase){await writeSnag(s);await writeUpdateDoc(s,statusUpdate);clearDirty(s.id);}await markSnagSeen(id);render();openDetail(id);toast(`Moved to ${statusLabel[status]}`);}
 async function toggleArchive(id){const s=state.snags.find(x=>x.id===id);s.archived=!s.archived;s.updatedAt=now();markDirty(s.id);saveState();if(firebase){await writeSnag(s);clearDirty(s.id);}render();openDetail(id);toast(s.archived?'Archived':'Restored');}
 function similarTo(text){const stop=new Set(['the','and','this','that','with','from','into','when','does','not','for','are','was','has','have','home','snag']);const words=new Set(text.toLowerCase().match(/[a-z0-9]+/g)?.filter(w=>w.length>3&&!stop.has(w))||[]);return projectSnags().filter(s=>s.status==='resolved').map(s=>{const sw=new Set(`${s.title} ${s.description} ${s.location}`.toLowerCase().match(/[a-z0-9]+/g)||[]);let hits=0;words.forEach(w=>{if(sw.has(w))hits++});return{s,score:words.size?hits/words.size:0};}).filter(x=>x.score>.12).sort((a,b)=>b.score-a.score).slice(0,3);}
 function renderSimilar(){const text=`${$('snagTitleInput').value} ${$('snagDescriptionInput').value} ${$('snagLocationInput').value}`;const matches=similarTo(text);$('similarPanel').classList.toggle('hidden',!matches.length);$('similarResults').innerHTML=matches.map(x=>`<div class="similar-item"><strong>${escapeHtml(x.s.ref)} · ${escapeHtml(x.s.title)}</strong><div class="subtle">Resolved ${x.s.resolvedAt?fmt(x.s.resolvedAt):''} · ${escapeHtml(x.s.location||'')}</div></div>`).join('');}
@@ -372,7 +374,7 @@ async function createShareLink(){
     if(!projectDoc?.ownerUid)throw new Error('Project is not available in the cloud');
     if(projectDoc.ownerUid!==auth.currentUser.uid)throw new Error('Only the project owner can create access links');
     const inviteId=randomCapability(),label=$('shareLabelInput').value.trim()||'Contractor access',role=$('shareRoleInput').value,admin=$('shareAdminInput').checked;
-    await firestoreRestSet(`snag_projects/${selectedProjectId}/invites/${inviteId}`,{active:true,label,role,admin,persistent:true,createdAt:now(),createdBy:auth.currentUser.uid});
+    await firestoreRestSet(`snag_projects/${selectedProjectId}/invites/${inviteId}`,{active:true,label,role,admin,persistent:true,createdAt:now(),createdBy:auth.currentUser.uid},'invite-create');
     const u=new URL(location.origin+location.pathname);u.searchParams.set('project',selectedProjectId);u.searchParams.set('invite',inviteId);
     $('shareLinkInput').value=u.toString();await renderAccessLinks();toast('Unique access link created');
   }catch(e){
@@ -391,7 +393,7 @@ async function renderAccessLinks(){
   }catch(e){console.error('Access link list failed',e);host.innerHTML=`<p class="subtle">${escapeHtml(firebaseErrorMessage(e))}</p>`;}
 }
 async function revokeInvite(inviteId){
-  try{await firestoreRestPatch(`snag_projects/${selectedProjectId}/invites/${inviteId}`,{active:false,revokedAt:now()},['active','revokedAt']);await renderAccessLinks();toast('Access link revoked')}
+  try{await firestoreRestPatch(`snag_projects/${selectedProjectId}/invites/${inviteId}`,{active:false,revokedAt:now()},['active','revokedAt'],'invite-revoke');await renderAccessLinks();toast('Access link revoked')}
   catch(e){console.error('Revoke invite failed',e);toast(firebaseErrorMessage(e))}
 }
 function randomCapability(){const b=new Uint8Array(32);crypto.getRandomValues(b);return btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
@@ -427,7 +429,7 @@ async function migrateLocalProjectToCloud(){
   if(!pending.length){diagStep('Pending uploads','ok','0 local changes');return {total:0,written:0,mediaFailed:0,failed:0}}
   for(const snag of pending){
     const label=`Pending · ${snag.ref||snag.id}`;diagStep(label,'running','Uploading local change');
-    try{await withTimeout(writeSnag(snag),9000,`${label} write`);clearDirty(snag.id);written++;diagStep(label,'ok','Synced')}
+    try{await withTimeout(syncSnagFull(snag),9000,`${label} write`);clearDirty(snag.id);written++;diagStep(label,'ok','Synced')}
     catch(e){failed++;diagStep(label,'error',firebaseErrorMessage(e));console.warn('Pending snag retained',snag.id,e)}
   }
   return {total:pending.length,written,mediaFailed,failed};
@@ -442,7 +444,8 @@ function firebaseErrorMessage(e){
   if(code==='permission-denied'||code==='firestore/permission-denied')return 'Firestore permission denied';
   if(code==='auth/operation-not-allowed')return 'Anonymous sign-in is disabled';
   if(code==='auth/network-request-failed')return 'Firebase network request failed';
-  return code||e?.message||'Firebase connection failed';
+  if(code==='RESOURCE_EXHAUSTED')return e?.message||'Firestore quota or capacity exhausted';
+  return e?.message||code||'Firebase connection failed';
 }
 function firestoreValue(v){
   if(v===null||v===undefined)return {nullValue:null};
@@ -462,7 +465,19 @@ function fromFirestoreValue(v){
   if('timestampValue'in v)return v.timestampValue;return null;
 }
 function fromFirestoreDoc(doc){const o={id:(doc?.name||'').split('/').pop()};for(const [k,v] of Object.entries(doc?.fields||{}))o[k]=fromFirestoreValue(v);return o}
-async function firestoreRest(path,{method='GET',data=null,mask=null}={}){
+function writeMetrics(){try{return JSON.parse(localStorage.getItem(LS.writeMetrics)||'{"day":"","attempts":0,"success":0,"failed":0,"byOp":{}}')}catch{return {day:"",attempts:0,success:0,failed:0,byOp:{}}}}
+function recordWriteMetric(op,status,path){
+  const day=new Date().toISOString().slice(0,10),m=writeMetrics();
+  if(m.day!==day){m.day=day;m.attempts=0;m.success=0;m.failed=0;m.byOp={}}
+  const k=op||'other',row=m.byOp[k]||(m.byOp[k]={attempts:0,success:0,failed:0,lastPath:'',lastAt:''});
+  if(status==='attempt'){m.attempts++;row.attempts++}else{m[status]=(m[status]||0)+1;row[status]=(row[status]||0)+1}
+  row.lastPath=path;row.lastAt=now();localStorage.setItem(LS.writeMetrics,JSON.stringify(m));
+}
+function writeMetricsText(){
+  const m=writeMetrics(),rows=Object.entries(m.byOp||{}).sort((x,y)=>y[1].attempts-x[1].attempts).slice(0,6);
+  return 'Today: '+(m.attempts||0)+' attempts · '+(m.success||0)+' succeeded · '+(m.failed||0)+' failed'+(rows.length?' · '+rows.map(([k,v])=>k+' '+v.attempts).join(' · '):'');
+}
+async function firestoreRest(path,{method='GET',data=null,mask=null,op='other'}={}){
   if(!firebase?.auth?.currentUser)throw new Error('Firebase authentication required');
   const token=await firebase.auth.currentUser.getIdToken();
   const projectId=window.SNAG_FIREBASE_CONFIG?.projectId||'kk-syllabus';
@@ -470,13 +485,14 @@ async function firestoreRest(path,{method='GET',data=null,mask=null}={}){
   if(mask?.length){const q=mask.map(x=>'updateMask.fieldPaths='+encodeURIComponent(x)).join('&');url+=(url.includes('?')?'&':'?')+q}
   const options={method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'}};
   if(data!==null)options.body=JSON.stringify({fields:firestoreFields(data)});
+  const isWrite=method!=='GET';if(isWrite)recordWriteMetric(op,'attempt',path);
   const response=await fetch(url,options);
   let payload=null;try{payload=await response.json()}catch{}
-  if(!response.ok){const err=new Error(payload?.error?.message||`Firestore REST ${response.status}`);err.code=payload?.error?.status||String(response.status);throw err}
-  return payload;
+  if(!response.ok){if(isWrite)recordWriteMetric(op,'failed',path);const err=new Error(payload?.error?.message||`Firestore REST ${response.status}`);err.code=payload?.error?.status||String(response.status);err.httpStatus=response.status;throw err}
+  if(isWrite)recordWriteMetric(op,'success',path);return payload;
 }
-async function firestoreRestSet(path,data){return firestoreRest(path,{method:'PATCH',data})}
-async function firestoreRestPatch(path,data,mask){return firestoreRest(path,{method:'PATCH',data,mask})}
+async function firestoreRestSet(path,data,op='other'){return firestoreRest(path,{method:'PATCH',data,op})}
+async function firestoreRestPatch(path,data,mask,op='other'){return firestoreRest(path,{method:'PATCH',data,mask,op})}
 async function firestoreRestGet(path){return fromFirestoreDoc(await firestoreRest(path))}
 async function firestoreRestList(path){
   if(!firebase?.auth?.currentUser)throw new Error('Firebase authentication required');
@@ -543,7 +559,7 @@ async function joinInvitedProject(projectId,inviteId){
   if(!inviteSnap.exists()||inviteSnap.data().active!==true)throw new Error('Invite is invalid or has been revoked');
   const invite=inviteSnap.data(),role=invite.role||'contractor';
   rememberSharedAccess(projectId,inviteId,role);
-  currentMember={uid:auth.currentUser.uid,name:profile.name,role,admin:invite.admin===true,label:invite.label||'',inviteId,joinedAt:now()};await firestoreRestSet(`snag_projects/${projectId}/members/${auth.currentUser.uid}`,currentMember);
+  currentMember={uid:auth.currentUser.uid,name:profile.name,role,admin:invite.admin===true,label:invite.label||'',inviteId,joinedAt:now()};await firestoreRestSet(`snag_projects/${projectId}/members/${auth.currentUser.uid}`,currentMember,'membership-join');
   const pSnap=await fsMod.getDoc(fsMod.doc(db,'snag_projects',projectId));
   if(!pSnap.exists())throw new Error('Project not found');
   const p={id:projectId,...pSnap.data()};
@@ -575,13 +591,13 @@ async function ensureProjectRemote(){
       return;
     }
     diagStep('Membership write','running','Restoring missing owner membership');
-    await firestoreRestSet(`snag_projects/${p.id}/members/${auth.currentUser.uid}`,{uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()});
+    await firestoreRestSet(`snag_projects/${p.id}/members/${auth.currentUser.uid}`,{uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()},'membership-owner');
     diagStep('Membership write','ok','Owner membership restored');
     return;
   }
 
   diagStep('Project owner write','running','Creating project');
-  await firestoreRestSet(`snag_projects/${p.id}`,{...p,ownerUid:auth.currentUser.uid,updatedAt:now()});
+  await firestoreRestSet(`snag_projects/${p.id}`,{...p,ownerUid:auth.currentUser.uid,updatedAt:now()},'project-create');
   diagStep('Project owner write','ok','Project created');
   diagStep('Membership write','running','Creating owner membership');
   await withTimeout(fsMod.setDoc(memberRef,{uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()},{merge:true}),9000,'Membership write');
@@ -589,12 +605,18 @@ async function ensureProjectRemote(){
 }
 async function writeSnag(s){
   const clean={...s};delete clean.updates;
-  await firestoreRestSet(`snag_projects/${selectedProjectId}/snags/${s.id}`,clean);
-  for(const u of s.updates||[])await firestoreRestSet(`snag_projects/${selectedProjectId}/snags/${s.id}/updates/${u.id}`,u);
+  await firestoreRestSet(`snag_projects/${selectedProjectId}/snags/${s.id}`,clean,'snag-doc');
+}
+async function writeUpdateDoc(s,u){
+  await firestoreRestSet(`snag_projects/${selectedProjectId}/snags/${s.id}/updates/${u.id}`,u,'snag-update');
 }
 async function writeUpdate(s,u){
-  await firestoreRestSet(`snag_projects/${selectedProjectId}/snags/${s.id}/updates/${u.id}`,u);
-  await firestoreRestPatch(`snag_projects/${selectedProjectId}/snags/${s.id}`,{updatedAt:s.updatedAt},['updatedAt']);
+  await writeUpdateDoc(s,u);
+  await firestoreRestPatch(`snag_projects/${selectedProjectId}/snags/${s.id}`,{updatedAt:s.updatedAt},['updatedAt'],'snag-touch');
+}
+async function syncSnagFull(s){
+  await writeSnag(s);
+  for(const u of s.updates||[])await writeUpdateDoc(s,u);
 }
 async function subscribeFirebase(){if(!firebase?.auth?.currentUser)return;unsubscribe?.();await loadCurrentMember();await subscribeSeenState();const {fsMod,db}=firebase;const q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'snags'),fsMod.orderBy('updatedAt','desc'));unsubscribe=fsMod.onSnapshot(q,async snap=>{for(const d of snap.docs){const data={id:d.id,...d.data()};const us=await fsMod.getDocs(fsMod.collection(db,'snag_projects',selectedProjectId,'snags',d.id,'updates'));data.updates=us.docs.map(x=>({id:x.id,...x.data()}));const i=state.snags.findIndex(x=>x.id===data.id);if(i>=0){if(!dirtyMap()[data.id])state.snags[i]=data;}else state.snags.push(data);}saveState();render();if(detailId)openDetail(detailId);},e=>console.warn('Firestore listener',e));}
 
@@ -628,7 +650,7 @@ function renderVersionLab(){
   host.querySelectorAll('[data-release-version]').forEach(b=>b.onclick=()=>setVersionFlag(b.dataset.releaseVersion,'release',!(versionPrefs()[b.dataset.releaseVersion]?.release)));
   host.querySelectorAll('[data-hide-version]').forEach(b=>b.onclick=()=>setVersionFlag(b.dataset.hideVersion,'hidden',true));
 }
-function renderCloudDiagnostics(){if($('firebaseStageDiagnostics'))$('firebaseStageDiagnostics').innerHTML=diagHtml();if($('buildBadge'))$('buildBadge').textContent='v'+APP_BUILD;if($('mobileBuildBadge'))$('mobileBuildBadge').textContent='v'+APP_BUILD;const t=cloudStatus.message||cloudStatus.state;if($('cloudDiagnostics'))$('cloudDiagnostics').textContent=t;if($('buildDialogCloud'))$('buildDialogCloud').textContent=t;if($('runningBuild'))$('runningBuild').textContent='v'+APP_BUILD;if($('buildDialogRunning'))$('buildDialogRunning').textContent='v'+APP_BUILD;const l=latestBuild?.build;if($('latestBuildState'))$('latestBuildState').textContent=l?(l===APP_BUILD?'· latest':'· update available'):'· latest unknown';if($('buildDialogLatest'))$('buildDialogLatest').textContent=l?'v'+l:'Unknown';}
+function renderCloudDiagnostics(){if($('firebaseStageDiagnostics'))$('firebaseStageDiagnostics').innerHTML=diagHtml()+`<div class="diag-row"><span class="diag-state">Σ</span><span><strong>App Firestore writes</strong><small>${escapeHtml(writeMetricsText())}</small></span></div>`;if($('buildBadge'))$('buildBadge').textContent='v'+APP_BUILD;if($('mobileBuildBadge'))$('mobileBuildBadge').textContent='v'+APP_BUILD;const t=cloudStatus.message||cloudStatus.state;if($('cloudDiagnostics'))$('cloudDiagnostics').textContent=t;if($('buildDialogCloud'))$('buildDialogCloud').textContent=t;if($('runningBuild'))$('runningBuild').textContent='v'+APP_BUILD;if($('buildDialogRunning'))$('buildDialogRunning').textContent='v'+APP_BUILD;const l=latestBuild?.build;if($('latestBuildState'))$('latestBuildState').textContent=l?(l===APP_BUILD?'· latest':'· update available'):'· latest unknown';if($('buildDialogLatest'))$('buildDialogLatest').textContent=l?'v'+l:'Unknown';}
 async function checkLatestBuild(){
   try{
     const r=await fetch('./version.json?t='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});
