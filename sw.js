@@ -1,5 +1,5 @@
-const CACHE='snag-static-v22';
-const BUILD='2026.09.21.1930';
+const CACHE='snag-static-v23';
+const BUILD='2026.09.22.1115';
 const STATIC=['./styles.css?v='+BUILD,'./notes.css?v='+BUILD,'./manifest.webmanifest','./icon.svg'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(STATIC)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
