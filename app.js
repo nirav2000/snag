@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.22.1345';
+const APP_BUILD='2026.09.22.1410';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1'};
 const now=()=>new Date().toISOString();
@@ -523,21 +523,39 @@ async function joinInvitedProject(projectId,inviteId){
 async function ensureProjectRemote(){
   if(!firebase?.auth?.currentUser)return;
   const p=project(),{fsMod,db,auth}=firebase;if(!p)return;
-  const ref=fsMod.doc(db,'snag_projects',p.id);
+  const ref=fsMod.doc(db,'snag_projects',p.id),memberRef=fsMod.doc(db,'snag_projects',p.id,'members',auth.currentUser.uid);
   diagStep('Project document','running',p.id);
-  let snap=null;
-  try{snap=await withTimeout(fsMod.getDoc(ref),7000,'Project read');diagStep('Project document','ok',snap.exists()?'Existing project read':'Project not found')}
-  catch(e){diagStep('Project document','error',firebaseErrorMessage(e));console.warn('Project read failed; trying owner write',e)}
-  diagStep('Project owner write','running',auth.currentUser.uid.slice(0,8)+'…');
+  let snap;
+  try{
+    snap=await withTimeout(fsMod.getDoc(ref),7000,'Project read');
+    diagStep('Project document','ok',snap.exists()?'Existing project read':'Project not found');
+  }catch(e){
+    diagStep('Project document','error',firebaseErrorMessage(e));throw e;
+  }
+
+  if(snap.exists()){
+    const remote=snap.data();
+    if(remote.ownerUid!==auth.currentUser.uid)throw new Error('Project owner does not match this Firebase identity');
+    // An existing project does not need to be rewritten every time the app opens.
+    diagStep('Project owner','ok','Existing owner verified');
+    diagStep('Membership','running','Checking owner membership');
+    const member=await withTimeout(fsMod.getDoc(memberRef),7000,'Membership read');
+    if(member.exists()){
+      diagStep('Membership','ok',`${member.data().role||'member'} membership verified`);
+      return;
+    }
+    diagStep('Membership write','running','Restoring missing owner membership');
+    await withTimeout(fsMod.setDoc(memberRef,{uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()},{merge:true}),9000,'Membership write');
+    diagStep('Membership write','ok','Owner membership restored');
+    return;
+  }
+
+  diagStep('Project owner write','running','Creating project');
   await withTimeout(fsMod.setDoc(ref,{...p,ownerUid:auth.currentUser.uid,updatedAt:now()},{merge:true}),9000,'Project owner write');
-  diagStep('Project owner write','ok','Project writable');
-  diagStep('Membership write','running','Creating/restoring owner membership');
-  await withTimeout(fsMod.setDoc(
-    fsMod.doc(db,'snag_projects',p.id,'members',auth.currentUser.uid),
-    {uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()},
-    {merge:true}
-  ),9000,'Membership write');
-  diagStep('Membership write','ok','Owner membership writable');
+  diagStep('Project owner write','ok','Project created');
+  diagStep('Membership write','running','Creating owner membership');
+  await withTimeout(fsMod.setDoc(memberRef,{uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()},{merge:true}),9000,'Membership write');
+  diagStep('Membership write','ok','Owner membership created');
 }
 async function writeSnag(s){const {fsMod,db}=firebase;const clean={...s};delete clean.updates;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),clean,{merge:true});for(const u of s.updates||[])await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});}
 async function writeUpdate(s,u){const {fsMod,db}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),{updatedAt:s.updatedAt},{merge:true});}
