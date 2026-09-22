@@ -1,14 +1,8 @@
 {
-  "build": "2026.09.22.1705",
-  "publishedAt": "2026-09-22T13:36:00+01:00",
+  "build": "2026.09.22.1735",
+  "publishedAt": "2026-09-22T13:58:00+01:00",
   "channel": "development",
   "branch": "develop",
-  "versionModel": "immutable versions/<build> branches",
-  "routes": {
-    "?latest": "develop",
-    "?stable": "stable",
-    "?v=<build>": "versions/<build>"
-  },
-  "stableBuild": "2026.09.21.1930",
-  "archivedVersions": 32
+  "writeTransport": "Firestore REST; SDK listeners for realtime reads",
+  "stableBuild": "2026.09.21.1930"
 }
