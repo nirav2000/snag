@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.22.1410';
+const APP_BUILD='2026.09.22.1435';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1'};
 const now=()=>new Date().toISOString();
@@ -415,36 +415,42 @@ async function migrateMediaItems(items,pathPrefix){
   return out;
 }
 async function migrateLocalProjectToCloud(){
-  if(!firebase?.auth?.currentUser)return {total:0,written:0,mediaFailed:0};
+  if(!firebase?.auth?.currentUser)return {total:0,written:0,mediaFailed:0,failed:0};
   const localSnags=state.snags.filter(s=>s.projectId===selectedProjectId);
-  let written=0,mediaFailed=0;
-  for(const snag of localSnags){
-    // First publish the snag and its conversation WITHOUT depending on R2.
-    // A media upload failure must never make the snag disappear for collaborators.
+  let written=0,mediaFailed=0,failed=0;
+  for(let i=0;i<localSnags.length;i++){
+    const snag=localSnags[i],label=`Snag ${i+1}/${localSnags.length} · ${snag.ref||snag.id}`;
+    diagStep(label,'running','Writing issue');
     try{
       const basic={...snag,media:(snag.media||[]).filter(m=>!m?.local&&!m?.url?.startsWith('data:'))};
       basic.updates=(snag.updates||[]).map(u=>({...u,media:(u.media||[]).filter(m=>!m?.local&&!m?.url?.startsWith('data:'))}));
-      await writeSnag(basic);
+      const {fsMod,db}=firebase,clean={...basic};delete clean.updates;
+      await withTimeout(fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',snag.id),clean,{merge:true}),6000,`${label} issue write`);
+      let updatesWritten=0;
+      for(const u of basic.updates||[]){
+        try{
+          await withTimeout(fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',snag.id,'updates',u.id),u,{merge:true}),5000,`${label} update ${updatesWritten+1}`);
+          updatesWritten++;
+        }catch(e){console.warn('Update sync skipped',snag.id,u.id,e);diagStep(label,'error',`Issue saved; update ${updatesWritten+1} failed: ${firebaseErrorMessage(e)}`)}
+      }
       written++;
+      if(!cloudDiag.find(x=>x.name===label)?.detail?.includes('failed'))diagStep(label,'ok',`Issue + ${updatesWritten}/${basic.updates?.length||0} updates synced`);
     }catch(e){
-      console.error('Could not publish snag metadata',snag.id,e);
-      continue;
+      failed++;diagStep(label,'error',firebaseErrorMessage(e));console.error('Could not publish snag',snag.id,e);continue;
     }
 
-    // Then migrate local media. If it fails, the shared snag remains visible.
+    const hasLocalMedia=(snag.media||[]).some(m=>m?.local||m?.url?.startsWith('data:'))||(snag.updates||[]).some(u=>(u.media||[]).some(m=>m?.local||m?.url?.startsWith('data:')));
+    if(!hasLocalMedia)continue;
+    const mediaLabel=`${label} media`;diagStep(mediaLabel,'running','Uploading local media');
     try{
-      snag.media=await migrateMediaItems(snag.media,`snag-projects/${selectedProjectId}/snags/${snag.id}`);
-      for(const update of (snag.updates||[])){
-        update.media=await migrateMediaItems(update.media,`snag-projects/${selectedProjectId}/snags/${snag.id}/updates/${update.id}`);
-      }
-      await writeSnag(snag);
-    }catch(e){
-      mediaFailed++;
-      console.warn('Snag published, but some media could not migrate',snag.id,e);
-    }
+      snag.media=await withTimeout(migrateMediaItems(snag.media,`snag-projects/${selectedProjectId}/snags/${snag.id}`),12000,`${label} media`);
+      for(const update of (snag.updates||[]))update.media=await withTimeout(migrateMediaItems(update.media,`snag-projects/${selectedProjectId}/snags/${snag.id}/updates/${update.id}`),12000,`${label} update media`);
+      await withTimeout(writeSnag(snag),9000,`${label} media metadata`);
+      diagStep(mediaLabel,'ok','Media synced');
+    }catch(e){mediaFailed++;diagStep(mediaLabel,'error',firebaseErrorMessage(e));console.warn('Media sync skipped',snag.id,e)}
   }
   saveState();
-  return {total:localSnags.length,written,mediaFailed};
+  return {total:localSnags.length,written,mediaFailed,failed};
 }
 function resetCloudDiag(){cloudDiag=[];renderCloudDiagnostics()}
 function diagStep(name,state='running',detail=''){const old=cloudDiag.find(x=>x.name===name);if(old){old.state=state;old.detail=detail;old.at=Date.now()}else cloudDiag.push({name,state,detail,at:Date.now()});renderCloudDiagnostics()}
@@ -493,7 +499,7 @@ async function initFirebase(cfg){
       diagStep('Firestore project','ok','Owner project available');
       diagStep('Snag sync','running','Publishing local changes');
       let migration={written:0,total:0,mediaFailed:0};
-      try{migration=await withTimeout(migrateLocalProjectToCloud(),12000,'Snag sync');diagStep('Snag sync','ok',`${migration.written}/${migration.total} synced`)}
+      try{migration=await migrateLocalProjectToCloud();diagStep('Snag sync',migration.failed?'error':'ok',`${migration.written}/${migration.total} synced${migration.failed?' · '+migration.failed+' failed':''}`)}
       catch(e){diagStep('Snag sync','error',firebaseErrorMessage(e));console.warn('Local migration incomplete',e)}
       cloudStatus={state:'connected',message:`Shared cloud connected · owner access · ${migration.written}/${migration.total} local snags synced · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};
     }
