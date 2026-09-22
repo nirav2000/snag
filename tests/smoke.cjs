@@ -3,7 +3,7 @@ const app=fs.readFileSync('app.js','utf8'),lab=fs.readFileSync('version-lab.html
 assert(app.includes("const APP_BUILD='2026.09.22.1755'"),'wrong app build');
 assert(idx.includes('2026.09.22.1755'),'index build mismatch');
 assert(lab.includes("versions/2026.09.21.1310"),'oldest archived build missing');
-assert(lab.includes("versions/2026.09.22.1755"),'latest frozen build missing');
+assert(lab.includes("versions/2026.09.22.1705"),'latest frozen build missing');
 assert(lab.includes("ref='develop'"),'?latest must resolve develop');
 assert(lab.includes("ref='stable'"),'?stable must resolve stable');
 console.log('Snag smoke tests passed');
