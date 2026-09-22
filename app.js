@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.22.1305';
+const APP_BUILD='2026.09.22.1345';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1'};
 const now=()=>new Date().toISOString();
@@ -476,7 +476,7 @@ async function initFirebase(cfg){
     if(run!==firebaseRun)return;
 
     app=appMod.getApps().length?appMod.getApps()[0]:appMod.initializeApp(cfg);
-    db=fsMod.getFirestore(app);auth=authMod.getAuth(app);firebase={appMod,fsMod,authMod,app,db,auth};
+    try{db=fsMod.initializeFirestore(app,{experimentalForceLongPolling:true,useFetchStreams:false})}catch(e){db=fsMod.getFirestore(app)}auth=authMod.getAuth(app);firebase={appMod,fsMod,authMod,app,db,auth};diagStep('Firestore transport','ok','Forced long polling');
     diagStep('Authentication','running','Restoring this device identity');
     try{await withTimeout(auth.authStateReady(),7000,'Firebase auth state')}catch(e){console.warn(e)}
     if(!auth.currentUser)await withTimeout(authMod.signInAnonymously(auth),10000,'Anonymous sign-in');
@@ -524,15 +524,20 @@ async function ensureProjectRemote(){
   if(!firebase?.auth?.currentUser)return;
   const p=project(),{fsMod,db,auth}=firebase;if(!p)return;
   const ref=fsMod.doc(db,'snag_projects',p.id);
-  // Bootstrap by writing first. Reading a document that does not yet exist is
-  // denied by the owner/member read rule, so a get-before-create deadlocks a
-  // brand-new anonymous session with permission-denied.
-  await fsMod.setDoc(ref,{...p,ownerUid:auth.currentUser.uid,updatedAt:now()},{merge:true});
-  await fsMod.setDoc(
+  diagStep('Project document','running',p.id);
+  let snap=null;
+  try{snap=await withTimeout(fsMod.getDoc(ref),7000,'Project read');diagStep('Project document','ok',snap.exists()?'Existing project read':'Project not found')}
+  catch(e){diagStep('Project document','error',firebaseErrorMessage(e));console.warn('Project read failed; trying owner write',e)}
+  diagStep('Project owner write','running',auth.currentUser.uid.slice(0,8)+'…');
+  await withTimeout(fsMod.setDoc(ref,{...p,ownerUid:auth.currentUser.uid,updatedAt:now()},{merge:true}),9000,'Project owner write');
+  diagStep('Project owner write','ok','Project writable');
+  diagStep('Membership write','running','Creating/restoring owner membership');
+  await withTimeout(fsMod.setDoc(
     fsMod.doc(db,'snag_projects',p.id,'members',auth.currentUser.uid),
     {uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()},
     {merge:true}
-  );
+  ),9000,'Membership write');
+  diagStep('Membership write','ok','Owner membership writable');
 }
 async function writeSnag(s){const {fsMod,db}=firebase;const clean={...s};delete clean.updates;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),clean,{merge:true});for(const u of s.updates||[])await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});}
 async function writeUpdate(s,u){const {fsMod,db}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),{updatedAt:s.updatedAt},{merge:true});}
@@ -559,7 +564,23 @@ function renderVersionLab(){
   VERSION_LAB.map(v=>`<a class="version-lab-row" href="./version-lab.html?ref=${encodeURIComponent(v.ref)}&build=${encodeURIComponent(v.build)}" target="_blank"><span><strong>${escapeHtml(v.label)}</strong><small>${escapeHtml(v.note)}</small></span><span>Open ↗</span></a>`).join('');
 }
 function renderCloudDiagnostics(){if($('firebaseStageDiagnostics'))$('firebaseStageDiagnostics').innerHTML=diagHtml();if($('buildBadge'))$('buildBadge').textContent='v'+APP_BUILD;if($('mobileBuildBadge'))$('mobileBuildBadge').textContent='v'+APP_BUILD;const t=cloudStatus.message||cloudStatus.state;if($('cloudDiagnostics'))$('cloudDiagnostics').textContent=t;if($('buildDialogCloud'))$('buildDialogCloud').textContent=t;if($('runningBuild'))$('runningBuild').textContent='v'+APP_BUILD;if($('buildDialogRunning'))$('buildDialogRunning').textContent='v'+APP_BUILD;const l=latestBuild?.build;if($('latestBuildState'))$('latestBuildState').textContent=l?(l===APP_BUILD?'· latest':'· update available'):'· latest unknown';if($('buildDialogLatest'))$('buildDialogLatest').textContent=l?'v'+l:'Unknown';}
-async function checkLatestBuild(){try{const r=await fetch('./version.json?t='+Date.now(),{cache:'no-store'});latestBuild=r.ok?await r.json():null}catch{latestBuild=null}renderCloudDiagnostics()}
-async function hardRefreshApp(){try{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('snag-')).map(k=>caches.delete(k)))}catch(e){console.warn(e)}location.reload()}
+async function checkLatestBuild(){
+  try{
+    const r=await fetch('./version.json?t='+Date.now(),{cache:'no-store',headers:{'Cache-Control':'no-cache'}});
+    latestBuild=r.ok?await r.json():null;
+    if(latestBuild?.build&&latestBuild.build!==APP_BUILD){
+      const key='snag-auto-updated-'+latestBuild.build;
+      if(!sessionStorage.getItem(key)){sessionStorage.setItem(key,'1');await hardRefreshApp();return}
+    }
+  }catch(e){latestBuild=null;console.warn('Build check failed',e)}
+  renderCloudDiagnostics()
+}
+async function hardRefreshApp(){
+  try{
+    if('serviceWorker'in navigator){const regs=await navigator.serviceWorker.getRegistrations();await Promise.all(regs.map(r=>r.unregister()))}
+    if('caches'in window){const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('snag-')).map(k=>caches.delete(k)))}
+  }catch(e){console.warn(e)}
+  const u=new URL(location.href);u.searchParams.set('_build',Date.now());location.replace(u.toString());
+}
 function bind(){bindAnnotationCanvas();$('editSnagForm').onsubmit=saveSnagEdit;$('closeGuideButton').onclick=finishGuide;$('finishGuideButton').onclick=finishGuide;if($('homeSearchInput'))$('homeSearchInput').onchange=e=>{view.search=e.target.value;setNav('snags');$('searchInput').value=view.search;renderList()};if($('homeFilterButton'))$('homeFilterButton').onclick=()=>{setNav('snags');$('filterPanel').classList.remove('hidden')};if($('homeGridButton'))$('homeGridButton').onclick=()=>setNav('snags');if($('seeAllSnags'))$('seeAllSnags').onclick=()=>setNav('snags');document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.onclick=()=>setNav(b.dataset.nav));if($('notificationButton'))$('notificationButton').onclick=()=>{setNav('home');setTimeout(()=>$('recentActivity')?.scrollIntoView({behavior:'smooth',block:'start'}),30)};$('feedbackButton').onclick=()=>{if(window.openSnagFeedback)window.openSnagFeedback();else toast('Feedback tool is loading…')};$('closeMyNotes').onclick=()=>$('myNotesDialog').close();$('addPrivateNote').onclick=addPrivateNote;$('annotationCancel').onclick=()=>$('annotateDialog').close();$('annotationSave').onclick=saveAnnotation;$('annotationUndo').onclick=()=>{annotationState.history.pop();redrawAnnotation()};$('annotationClear').onclick=()=>{annotationState.history=[];redrawAnnotation()};document.querySelectorAll('[data-annotation-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-annotation-tool]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');annotationState.colour=b.dataset.annotationTool==='yellow'?'#facc15':b.dataset.annotationTool==='black'?'#111827':'#ef4444'});document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('projectCoverInput').onchange=e=>{const f=e.target.files?.[0];e.target.value='';if(f)setProjectCover(f)};$('removeProjectCoverButton').onclick=removeProjectCover;$('manageRoomsButton').onclick=openRoomManager;$('openRoomManagerButton').onclick=openRoomManager;$('closeRoomManager').onclick=()=>$('roomManagerDialog').close();$('guidesEnabledInput').onchange=e=>{localStorage.setItem(LS.guidesEnabled,e.target.checked?'1':'0');toast(e.target.checked?'Quick guides enabled':'Quick guides disabled')};$('showGuideNowButton').onclick=()=>showGuide(isAdmin()?'owner':'contractor');$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;if($('syncPill'))$('syncPill').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;setNav('snags');render()});$('createProjectButton').onclick=()=>{const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProjectSetupButton').onclick=async()=>{const p=project();p.locations=$('projectLocationsInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.assignees=$('projectAssigneesInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.updatedAt=now();saveState();if(firebase)await ensureProjectRemote();render();toast('Project setup saved')};$('createShareLinkButton').onclick=createShareLink;$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));render();toast('Identity saved')};$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});if($('buildBadge'))$('buildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};if($('mobileBuildBadge'))$('mobileBuildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
 bind();render();checkLatestBuild();const cfg=window.SNAG_FIREBASE_CONFIG||JSON.parse(localStorage.getItem(LS.firebase)||'null');if(cfg)initFirebase(cfg).then(render).catch(e=>{console.warn(e);if(cloudStatus.state!=='error')cloudStatus={state:'error',message:firebaseErrorMessage(e)};render();});
