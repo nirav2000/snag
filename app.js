@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.22.1510';
+const APP_BUILD='2026.09.22.1545';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1'};
 const now=()=>new Date().toISOString();
@@ -197,7 +197,7 @@ async function uploadToR2(file,pathPrefix){
   if(!window.SNAG_R2_API||!firebase?.auth?.currentUser)throw new Error('R2 upload is not configured');
   const token=await firebase.auth.currentUser.getIdToken();
   const key=`${pathPrefix}/${uid()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
-  const response=await fetch(`${window.SNAG_R2_API.replace(/\/$/,'')}/objects/${key.split('/').map(encodeURIComponent).join('/')}`,{method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':file.type||'application/octet-stream'},body:file});
+  const response=await withTimeout(fetch(`${window.SNAG_R2_API.replace(/\/$/,'')}/objects/${key.split('/').map(encodeURIComponent).join('/')}`,{method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':file.type||'application/octet-stream'},body:file}),10000,'Media upload');
   if(!response.ok)throw new Error(`R2 upload failed (${response.status})`);
   const data=await response.json();
   return {url:data.url,key:data.key||key,name:file.name,type:file.type,size:file.size,local:false,storage:'r2'};
@@ -371,16 +371,18 @@ async function shareProject(){
 }
 async function createShareLink(){
   if(!firebase?.auth?.currentUser)return toast('Cloud sharing is not connected yet');
+  const btn=$('createShareLinkButton');btn.disabled=true;btn.textContent='Creating…';
   try{
     const {fsMod,db,auth}=firebase,projectRef=fsMod.doc(db,'snag_projects',selectedProjectId);
-    const snap=await fsMod.getDoc(projectRef);if(!snap.exists())await ensureProjectRemote();
-    const latest=(await fsMod.getDoc(projectRef)).data();
-    if(latest?.ownerUid!==auth.currentUser.uid)return toast('Only the project owner can create access links');
+    const snap=await withTimeout(fsMod.getDoc(projectRef),7000,'Project access check');
+    if(!snap.exists())throw new Error('Project is not available in the cloud');
+    if(snap.data()?.ownerUid!==auth.currentUser.uid)throw new Error('Only the project owner can create access links');
     const inviteId=randomCapability(),label=$('shareLabelInput').value.trim()||'Contractor access',role=$('shareRoleInput').value,admin=$('shareAdminInput').checked;
-    await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:true,label,role,admin,persistent:true,createdAt:now(),createdBy:auth.currentUser.uid});
-    const u=new URL(location.href);u.searchParams.set('project',selectedProjectId);u.searchParams.set('invite',inviteId);
+    await withTimeout(fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:true,label,role,admin,persistent:true,createdAt:now(),createdBy:auth.currentUser.uid}),9000,'Create access link');
+    const u=new URL(location.origin+location.pathname);u.searchParams.set('project',selectedProjectId);u.searchParams.set('invite',inviteId);
     $('shareLinkInput').value=u.toString();await renderAccessLinks();toast('Unique access link created');
-  }catch(e){console.error(e);toast('Could not create access link');}
+  }catch(e){console.error(e);$('shareWarning').textContent=firebaseErrorMessage(e);$('shareWarning').classList.remove('hidden');toast(firebaseErrorMessage(e))}
+  finally{btn.disabled=false;btn.textContent='Create unique link'}
 }
 async function renderAccessLinks(){
   const host=$('accessLinkList');if(!host||!firebase?.auth?.currentUser)return;
@@ -561,10 +563,20 @@ const VERSION_LAB=[
   {label:'Dashboard 1815',build:'2026.09.21.1815',ref:'3da8b61b8bcd5bfbd809fcd96e7ac13e6a08aa0c',note:'Apple-style dashboard'},
   {label:'Stable 1755',build:'2026.09.21.1755',ref:'50da66392b4f1c6bd8203d941b84677242b5951c',note:'Earlier stable layout'}
 ];
+const VERSION_CATALOG=[{"build":"2026.09.22.1510","ref":"d4fc666f930ba06947481005c57d17d389819f05","date":"22 Sep 2026 · 12:34 BST"},{"build":"2026.09.22.1435","ref":"bb9da8cd5505348eea34fb737c2f538cae9b80fa","date":"22 Sep 2026 · 12:26 BST"},{"build":"2026.09.22.1410","ref":"1a9ad5ce7de7fbd08853a04aa18b9d45a973fd1d","date":"22 Sep 2026 · 12:21 BST"},{"build":"2026.09.22.1345","ref":"d8d1a6e05564979777eeded2a39bb1081c0447e3","date":"22 Sep 2026 · 12:16 BST"},{"build":"2026.09.22.1325","ref":"47ab414ff4e1d8776ad684a9c94c0679c5dd861e","date":"22 Sep 2026 · 12:08 BST"},{"build":"2026.09.22.1305","ref":"a3905367debb869326fd7e407ac77545d13f0910","date":"22 Sep 2026 · 12:03 BST"},{"build":"2026.09.22.1235","ref":"484e15d004784ed99b218e3a47a7dd7f62950d53","date":"22 Sep 2026 · 11:54 BST"},{"build":"2026.09.22.1205","ref":"f8eebcee5192be2efeb10073c9bb2e7907744aac","date":"22 Sep 2026 · 11:48 BST"},{"build":"2026.09.22.1145","ref":"f0340aa92ce61e535b9dc2fe2bbc6870975899db","date":"22 Sep 2026 · 11:44 BST"},{"build":"2026.09.22.1115","ref":"31c45d379ae9b0c60d6631105456df160203ba72","date":"22 Sep 2026 · 11:24 BST"},{"build":"2026.09.21.1930","ref":"0be2c35c91f62e52190625fc38a4b0ba7b1e9321","date":"21 Sep 2026 · 23:24 BST"},{"build":"2026.09.21.1905","ref":"3b31372b8bae445118c8b4bcf063a94bc6b7b542","date":"21 Sep 2026 · 23:04 BST"},{"build":"2026.09.21.1835","ref":"b524ec9af9cf38ebb0e2410461b5dbcac30e0d0c","date":"21 Sep 2026 · 22:49 BST"},{"build":"2026.09.21.1815","ref":"3da8b61b8bcd5bfbd809fcd96e7ac13e6a08aa0c","date":"21 Sep 2026 · 15:53 BST"},{"build":"2026.09.21.1755","ref":"50da66392b4f1c6bd8203d941b84677242b5951c","date":"21 Sep 2026 · 15:36 BST"},{"build":"2026.09.21.1745","ref":"640921c3600150b3bff62fdbf683357090fbe637","date":"21 Sep 2026 · 15:31 BST"},{"build":"2026.09.21.1735","ref":"218442999dfd4431f574c69ab8a0a70814405cbd","date":"21 Sep 2026 · 15:25 BST"},{"build":"2026.09.21.1725","ref":"dc169e44466d1f2c5d415fd6723800510e088217","date":"21 Sep 2026 · 15:22 BST"},{"build":"2026.09.21.1715","ref":"4145a1f255a8da9e79159e7aeb71e74394d2fdd0","date":"21 Sep 2026 · 15:15 BST"},{"build":"2026.09.21.1635","ref":"ed5d2669d44220c4b5483d515f419f9328601bcb","date":"21 Sep 2026 · 14:59 BST"},{"build":"2026.09.21.1605","ref":"5babe749c8350e834faacb6bd0d46618b2f39f8c","date":"21 Sep 2026 · 14:40 BST"},{"build":"2026.09.21.1535","ref":"0958627899d5464d0753a799ba0e76ce2a8b70c1","date":"21 Sep 2026 · 14:31 BST"},{"build":"2026.09.21.1500","ref":"ff8c34ecd9e3dab2cc4282108eb16800807b882c","date":"21 Sep 2026 · 14:27 BST"}];
+function versionPrefs(){try{return JSON.parse(localStorage.getItem('snag-version-prefs-v1')||'{}')}catch{return {}}}
+function saveVersionPrefs(p){localStorage.setItem('snag-version-prefs-v1',JSON.stringify(p))}
+function setVersionFlag(build,flag,value){const p=versionPrefs();p[build]={...(p[build]||{}),[flag]:value};saveVersionPrefs(p);renderVersionLab()}
 function renderVersionLab(){
-  const host=$('versionLabList');if(!host)return;
-  host.innerHTML=`<a class="version-lab-row stable-release-row" href="./version-lab.html?ref=stable&build=Stable%20release" target="_blank"><span><strong>Stable release</strong><small>Real-world version, isolated from development</small></span><span>Open ↗</span></a>`+
-  VERSION_LAB.map(v=>`<a class="version-lab-row" href="./version-lab.html?ref=${encodeURIComponent(v.ref)}&build=${encodeURIComponent(v.build)}" target="_blank"><span><strong>${escapeHtml(v.label)}</strong><small>${escapeHtml(v.note)}</small></span><span>Open ↗</span></a>`).join('');
+  const host=$('versionLabList');if(!host)return;const prefs=versionPrefs(),showHidden=$('showHiddenVersions')?.checked===true;
+  const rows=VERSION_CATALOG.filter(v=>showHidden||!prefs[v.build]?.hidden).map(v=>{
+    const p=prefs[v.build]||{},release=p.release===true||v.build==='2026.09.21.1930';
+    return `<div class="version-lab-row version-manage-row"><a href="./version-lab.html?ref=${encodeURIComponent(v.ref)}&build=${encodeURIComponent(v.build)}" target="_blank"><span><strong>v${escapeHtml(v.build)}</strong><small>${escapeHtml(v.date)} · ${v.ref.slice(0,7)}${release?' · RELEASE':''}</small></span><span>Open ↗</span></a><div class="version-actions"><button type="button" data-release-version="${v.build}">${release?'Release ✓':'Mark release'}</button><button type="button" data-hide-version="${v.build}">${p.hidden?'Restore':'Hide'}</button></div></div>`;
+  }).join('');
+  host.innerHTML=`<label class="version-filter"><input id="showHiddenVersions" type="checkbox" ${showHidden?'checked':''}> Show hidden versions</label>`+rows;
+  $('showHiddenVersions').onchange=renderVersionLab;
+  host.querySelectorAll('[data-release-version]').forEach(b=>b.onclick=()=>setVersionFlag(b.dataset.releaseVersion,'release',!(versionPrefs()[b.dataset.releaseVersion]?.release)));
+  host.querySelectorAll('[data-hide-version]').forEach(b=>b.onclick=()=>setVersionFlag(b.dataset.hideVersion,'hidden',true));
 }
 function renderCloudDiagnostics(){if($('firebaseStageDiagnostics'))$('firebaseStageDiagnostics').innerHTML=diagHtml();if($('buildBadge'))$('buildBadge').textContent='v'+APP_BUILD;if($('mobileBuildBadge'))$('mobileBuildBadge').textContent='v'+APP_BUILD;const t=cloudStatus.message||cloudStatus.state;if($('cloudDiagnostics'))$('cloudDiagnostics').textContent=t;if($('buildDialogCloud'))$('buildDialogCloud').textContent=t;if($('runningBuild'))$('runningBuild').textContent='v'+APP_BUILD;if($('buildDialogRunning'))$('buildDialogRunning').textContent='v'+APP_BUILD;const l=latestBuild?.build;if($('latestBuildState'))$('latestBuildState').textContent=l?(l===APP_BUILD?'· latest':'· update available'):'· latest unknown';if($('buildDialogLatest'))$('buildDialogLatest').textContent=l?'v'+l:'Unknown';}
 async function checkLatestBuild(){
