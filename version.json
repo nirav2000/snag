@@ -1,8 +1,8 @@
 {
-  "build": "2026.09.22.1735",
-  "publishedAt": "2026-09-22T13:58:00+01:00",
+  "build": "2026.09.22.1755",
+  "publishedAt": "2026-09-22T14:20:00+01:00",
   "channel": "development",
   "branch": "develop",
-  "writeTransport": "Firestore REST; SDK listeners for realtime reads",
+  "writeModel": "minimal writes + local write telemetry",
   "stableBuild": "2026.09.21.1930"
 }
