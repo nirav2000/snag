@@ -1,7 +1,8 @@
 {
-  "build": "2026.09.22.1545",
-  "publishedAt": "2026-09-22T15:45:00+01:00",
+  "build": "2026.09.22.1615",
+  "publishedAt": "2026-09-22T16:15:00+01:00",
   "channel": "development",
+  "branch": "develop",
   "stableRef": "stable",
   "stableBuild": "2026.09.21.1930"
 }
