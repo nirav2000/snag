@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.21.1930';
+const APP_BUILD='2026.09.22.1115';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1'};
 const now=()=>new Date().toISOString();
@@ -111,8 +111,17 @@ function renderRecentActivity(){
 }
 function renderHomeActiveSnags(){
   const host=$('homeActiveSnags');if(!host)return;
-  const items=visibleProjectSnags().filter(s=>s.status!=='resolved'&&!s.archived).sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt)).slice(0,4);
-  host.innerHTML=items.length?items.map(s=>`<button class="home-snag-row" type="button" data-home-snag="${s.id}">${thumbHtml(s)}<span class="home-snag-copy"><span class="home-snag-top"><strong>${escapeHtml(s.ref)} · ${escapeHtml(s.title)}</strong>${isUnread(s)?'<i class="home-row-unread"></i>':''}</span><span class="home-snag-status"><span class="status-badge status-${s.status}">${statusLabel[s.status]}</span><span class="priority-badge priority-${s.priority}">${s.priority}</span></span><small>${escapeHtml(s.location||'No location')} · ${escapeHtml(s.assignee||'Unassigned')}</small></span><span class="chevron">›</span></button>`).join(''):'<div class="empty-inline">No active snags.</div>';
+  const items=visibleProjectSnags().filter(s=>s.status!=='resolved'&&!s.archived).sort((x,y)=>new Date(y.updatedAt)-new Date(x.updatedAt)).slice(0,5);
+  host.innerHTML=items.length?items.map((s,i)=>`<button class="home-snag-row handover-snag-row" type="button" data-home-snag="${s.id}">
+    <span class="handover-index">${String(i+1).padStart(2,'0')}</span>
+    ${thumbHtml(s)}
+    <span class="home-snag-copy">
+      <span class="handover-ref">${escapeHtml(s.ref)} · ${escapeHtml((s.location||'NO LOCATION').toUpperCase())}</span>
+      <strong class="handover-title">${escapeHtml(s.title)}</strong>
+      <span class="handover-meta-line"><span class="status-badge status-${s.status}">${statusLabel[s.status]}</span><span>${escapeHtml(s.assignee||'Unassigned')}</span><span>· Updated ${fmt(s.updatedAt)}</span></span>
+    </span>
+    <span class="chevron">›</span>
+  </button>`).join(''):'<div class="empty-inline">No unresolved issues.</div>';
   host.querySelectorAll('[data-home-snag]').forEach(b=>b.onclick=()=>openDetail(b.dataset.homeSnag));
 }
 function renderList(){const list=getFiltered();const titles={active:'Active snags','in-progress':'In progress',review:'Needs review',resolved:'Resolved archive'};$('listTitle').textContent=titles[view.status]||'Snags';$('snagList').innerHTML=list.map(s=>`<button class="snag-card" data-id="${s.id}" type="button">${thumbHtml(s)}<div class="snag-card-body"><div class="snag-meta"><span class="status-badge status-${s.status}">${statusLabel[s.status]}</span><span class="priority-badge priority-${s.priority}">${s.priority}</span><span>${escapeHtml(s.ref)}</span></div><h3>${escapeHtml(s.title)}</h3><div class="snag-foot"><span>${escapeHtml(s.location||'No location')}</span><span>·</span><span>${escapeHtml(s.assignee||'Unassigned')}</span><span>·</span><span>Updated ${fmt(s.updatedAt)}</span></div></div><div class="snag-actions">${isUnread(s)?`<span class="card-unread-dot" title="New activity"></span>`:""}<span class="activity-count">${(s.updates||[]).length} updates</span></div></button>`).join('');$('emptyState').classList.toggle('hidden',list.length>0);$('snagList').querySelectorAll('.snag-card').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.id)));}
