@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.22.1545';
+const APP_BUILD='2026.09.22.1615';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1'};
 const now=()=>new Date().toISOString();
@@ -197,7 +197,7 @@ async function uploadToR2(file,pathPrefix){
   if(!window.SNAG_R2_API||!firebase?.auth?.currentUser)throw new Error('R2 upload is not configured');
   const token=await firebase.auth.currentUser.getIdToken();
   const key=`${pathPrefix}/${uid()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
-  const response=await withTimeout(fetch(`${window.SNAG_R2_API.replace(/\/$/,'')}/objects/${key.split('/').map(encodeURIComponent).join('/')}`,{method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':file.type||'application/octet-stream'},body:file}),10000,'Media upload');
+  const response=await fetch(`${window.SNAG_R2_API.replace(/\/$/,'')}/objects/${key.split('/').map(encodeURIComponent).join('/')}`,{method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':file.type||'application/octet-stream'},body:file});
   if(!response.ok)throw new Error(`R2 upload failed (${response.status})`);
   const data=await response.json();
   return {url:data.url,key:data.key||key,name:file.name,type:file.type,size:file.size,local:false,storage:'r2'};
@@ -225,22 +225,17 @@ async function prepareMedia(files,pathPrefix){
   return result;
 }
 async function createSnag(e){
-  e.preventDefault();
-  const submitter=e.submitter;
-  if(submitter?.value==='cancel')return $('snagDialog').close();
-  const description=$('snagDescriptionInput').value.trim();
-  const enteredTitle=$('snagTitleInput').value.trim();
-  const hasMedia=pendingFiles.length>0;
-  const error=$('snagFormError');
-  error.classList.add('hidden'); error.textContent='';
-  if(!enteredTitle&&!description&&!hasMedia){
-    error.textContent='Add a photo/video, a title, or a short description before creating the snag.';
-    error.classList.remove('hidden');
-    error.scrollIntoView({behavior:'smooth',block:'center'});
-    return;
-  }
+  e.preventDefault();const submitter=e.submitter;if(submitter?.value==='cancel')return $('snagDialog').close();
+  const description=$('snagDescriptionInput').value.trim(),enteredTitle=$('snagTitleInput').value.trim(),hasMedia=pendingFiles.length>0,error=$('snagFormError');
+  error.classList.add('hidden');error.textContent='';if(!enteredTitle&&!description&&!hasMedia){error.textContent='Add a photo/video, a title, or a short description before creating the snag.';error.classList.remove('hidden');return}
   const mediaLead=pendingFiles[0]?.type?.startsWith('video/')?'Video snag':pendingFiles[0]?.type?.startsWith('image/')?'Photo snag':'New snag';
-  const title=enteredTitle||(description.split(/\n|[.!?]/)[0].trim().slice(0,90)||mediaLead);const id=uid(),t=now();$('createSnagSubmit').disabled=true;$('createSnagSubmit').textContent=pendingFiles.length?'Uploading…':'Saving…';try{const media=await prepareMedia(pendingFiles,`snag-projects/${selectedProjectId}/snags/${id}`);const snag={id,projectId:selectedProjectId,ref:nextRef(),title,category:$('snagCategoryInput').value,priority:$('snagPriorityInput').value,location:$('snagLocationInput').value.trim(),assignee:$('snagAssigneeInput').value.trim(),description,outcome:$('snagOutcomeInput').value.trim(),status:'open',archived:false,createdAt:t,updatedAt:t,createdBy:profile.name,media,updates:[{id:uid(),type:'note',text:'Snag recorded.',author:profile.name,role:profile.role,createdAt:t,media:[]} ]};state.snags.push(snag);markDirty(snag.id);saveState();if(firebase){await writeSnag(snag);clearDirty(snag.id);}await markSnagSeen(id);$('snagDialog').close();$('snagForm').reset();pendingFiles=[];$('newMediaPreview').innerHTML='';toast('Snag created');render();openDetail(id);}catch(err){console.error(err);const msg=err?.message||'Could not save the snag';const formError=$('snagFormError');if(formError){formError.textContent=msg;formError.classList.remove('hidden');formError.scrollIntoView({behavior:'smooth',block:'center'});}toast(msg);}finally{$('createSnagSubmit').disabled=false;$('createSnagSubmit').textContent='Create snag';}}
+  const title=enteredTitle||(description.split(/\n|[.!?]/)[0].trim().slice(0,90)||mediaLead),id=uid(),t=now(),files=[...pendingFiles];
+  const snag={id,projectId:selectedProjectId,ref:nextRef(),title,category:$('snagCategoryInput').value,priority:$('snagPriorityInput').value,location:$('snagLocationInput').value.trim(),assignee:$('snagAssigneeInput').value.trim(),description,outcome:$('snagOutcomeInput').value.trim(),status:'open',archived:false,createdAt:t,updatedAt:t,createdBy:profile.name,media:[],mediaSync:files.length?'pending':'none',updates:[{id:uid(),type:'note',text:'Snag recorded.',author:profile.name,role:profile.role,createdAt:t,media:[]}]};
+  state.snags.push(snag);markDirty(id);saveState();$('snagDialog').close();$('snagForm').reset();pendingFiles=[];$('newMediaPreview').innerHTML='';render();openDetail(id);toast(files.length?'Snag saved · photo syncing':'Snag saved');
+  if(firebase){try{await writeSnag(snag);clearDirty(id)}catch(err){console.error('Snag cloud write',err);markDirty(id);toast('Saved locally · cloud sync pending')}}
+  if(files.length){try{const media=await prepareMedia(files,`snag-projects/${selectedProjectId}/snags/${id}`);snag.media=media;snag.mediaSync='synced';snag.updatedAt=now();markDirty(id);saveState();render();if(firebase){await writeSnag(snag);clearDirty(id)}}
+    catch(err){console.error('Media sync',err);snag.mediaSync='error';snag.mediaSyncError=firebaseErrorMessage(err);saveState();render();toast('Snag saved · photo sync needs retry')}}
+}
 async function addUpdate(id,text,files=[],evidenceType='progress'){text=text.trim();if(!text&&!files.length)return;const s=state.snags.find(x=>x.id===id);const u={id:uid(),type:'note',evidenceType,text,author:profile.name,role:profile.role,createdAt:now(),media:await prepareMedia(files,`snag-projects/${selectedProjectId}/snags/${id}/updates`)};s.updates=s.updates||[];s.updates.push(u);s.updatedAt=u.createdAt;markDirty(s.id);saveState();if(firebase){await writeUpdate(s,u);clearDirty(s.id);}await markSnagSeen(id);render();openDetail(id);toast('Update added');}
 async function setStatus(id,status){const s=state.snags.find(x=>x.id===id);if(!s||s.status===status)return;s.status=status;s.updatedAt=now();s.resolvedAt=status==='resolved'?s.updatedAt:null;markDirty(s.id);s.updates.push({id:uid(),type:'status',text:`Status changed to ${statusLabel[status]}.`,author:profile.name,role:profile.role,createdAt:s.updatedAt,media:[]});saveState();if(firebase){await writeSnag(s);clearDirty(s.id);}await markSnagSeen(id);render();openDetail(id);toast(`Moved to ${statusLabel[status]}`);}
 async function toggleArchive(id){const s=state.snags.find(x=>x.id===id);s.archived=!s.archived;s.updatedAt=now();markDirty(s.id);saveState();if(firebase){await writeSnag(s);clearDirty(s.id);}render();openDetail(id);toast(s.archived?'Archived':'Restored');}
@@ -374,14 +369,14 @@ async function createShareLink(){
   const btn=$('createShareLinkButton');btn.disabled=true;btn.textContent='Creating…';
   try{
     const {fsMod,db,auth}=firebase,projectRef=fsMod.doc(db,'snag_projects',selectedProjectId);
-    const snap=await withTimeout(fsMod.getDoc(projectRef),7000,'Project access check');
+    const snap=await fsMod.getDoc(projectRef);
     if(!snap.exists())throw new Error('Project is not available in the cloud');
     if(snap.data()?.ownerUid!==auth.currentUser.uid)throw new Error('Only the project owner can create access links');
     const inviteId=randomCapability(),label=$('shareLabelInput').value.trim()||'Contractor access',role=$('shareRoleInput').value,admin=$('shareAdminInput').checked;
-    await withTimeout(fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:true,label,role,admin,persistent:true,createdAt:now(),createdBy:auth.currentUser.uid}),9000,'Create access link');
+    await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:true,label,role,admin,persistent:true,createdAt:now(),createdBy:auth.currentUser.uid});
     const u=new URL(location.origin+location.pathname);u.searchParams.set('project',selectedProjectId);u.searchParams.set('invite',inviteId);
     $('shareLinkInput').value=u.toString();await renderAccessLinks();toast('Unique access link created');
-  }catch(e){console.error(e);$('shareWarning').textContent=firebaseErrorMessage(e);$('shareWarning').classList.remove('hidden');toast(firebaseErrorMessage(e))}
+  }catch(e){console.error(e);$('shareWarning').textContent=`${firebaseErrorMessage(e)}${e?.code?' · '+e.code:''}`;$('shareWarning').classList.remove('hidden');toast(firebaseErrorMessage(e))}
   finally{btn.disabled=false;btn.textContent='Create unique link'}
 }
 async function renderAccessLinks(){
@@ -546,7 +541,7 @@ async function ensureProjectRemote(){
 }
 async function writeSnag(s){const {fsMod,db}=firebase;const clean={...s};delete clean.updates;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),clean,{merge:true});for(const u of s.updates||[])await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});}
 async function writeUpdate(s,u){const {fsMod,db}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),{updatedAt:s.updatedAt},{merge:true});}
-async function subscribeFirebase(){if(!firebase?.auth?.currentUser)return;unsubscribe?.();await loadCurrentMember();await subscribeSeenState();const {fsMod,db}=firebase;const q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'snags'),fsMod.orderBy('updatedAt','desc'));unsubscribe=fsMod.onSnapshot(q,async snap=>{for(const d of snap.docs){const data={id:d.id,...d.data()};const us=await fsMod.getDocs(fsMod.collection(db,'snag_projects',selectedProjectId,'snags',d.id,'updates'));data.updates=us.docs.map(x=>({id:x.id,...x.data()}));const i=state.snags.findIndex(x=>x.id===data.id);if(i>=0)state.snags[i]=data;else state.snags.push(data);clearDirty(data.id);}saveState();render();if(detailId)openDetail(detailId);},e=>console.warn('Firestore listener',e));}
+async function subscribeFirebase(){if(!firebase?.auth?.currentUser)return;unsubscribe?.();await loadCurrentMember();await subscribeSeenState();const {fsMod,db}=firebase;const q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'snags'),fsMod.orderBy('updatedAt','desc'));unsubscribe=fsMod.onSnapshot(q,async snap=>{for(const d of snap.docs){const data={id:d.id,...d.data()};const us=await fsMod.getDocs(fsMod.collection(db,'snag_projects',selectedProjectId,'snags',d.id,'updates'));data.updates=us.docs.map(x=>({id:x.id,...x.data()}));const i=state.snags.findIndex(x=>x.id===data.id);if(i>=0){if(!dirtyMap()[data.id])state.snags[i]=data;}else state.snags.push(data);}saveState();render();if(detailId)openDetail(detailId);},e=>console.warn('Firestore listener',e));}
 
 async function loadCurrentMember(){if(!firebase?.auth?.currentUser)return;try{const {fsMod,db,auth}=firebase,s=await fsMod.getDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'members',auth.currentUser.uid));currentMember=s.exists()?{id:s.id,...s.data()}:null}catch{currentMember=null}}
 async function openMyNotes(){if(!firebase?.auth?.currentUser)return toast('Cloud connection required');$('myNotesDialog').showModal();subscribePrivateNotes();}
