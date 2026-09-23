@@ -22,14 +22,24 @@ async function loadText(path){
   const u='https://raw.githubusercontent.com/nirav2000/snag/'+encodeURIComponent(ref)+'/'+path+'?t='+Date.now();
   const r=await fetch(u,{cache:'no-store'});if(!r.ok)throw new Error(path+' returned '+r.status);return r.text();
 }
+async function loadCurrentText(path){
+  const r=await fetch('./'+path+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error(path+' returned '+r.status);return r.text();
+}
 (async()=>{
   try{
+    const localState=JSON.parse(localStorage.getItem('snag-recorder-state-v1')||'null');
+    const migration=JSON.parse(localStorage.getItem('snag-recorder-migration-v2')||'{}');
+    const projectId=localState?.selectedProjectId;
+    if(projectId && migration[projectId]?.status!=='complete'){
+      throw new Error('Open the current Snag app once to migrate this project before running an archived interface.');
+    }
     const [html,css,notesCss,cfg,app,notes]=await Promise.all([
-      loadText('index.html'),loadText('styles.css'),loadText('notes.css'),loadText('firebase-config.js'),loadText('app.js'),loadText('notes.js')
+      loadText('index.html'),loadText('styles.css'),loadText('notes.css'),loadCurrentText('firebase-config.js'),loadText('app.js'),loadText('notes.js')
     ]);
     let out=html;
     out=out.replace(/<link[^>]+href=["']styles\.css[^"']*["'][^>]*>/i,'<style>'+css.replace(/<\/style/gi,'<\\/style')+'</style>');
     out=out.replace(/<link[^>]+href=["']notes\.css[^"']*["'][^>]*>/i,'<style>'+notesCss.replace(/<\/style/gi,'<\\/style')+'</style>');
+    // Archived UI code always receives the current central Firebase config. This prevents old builds from writing to retired databases.
     out=out.replace(/<script[^>]+src=["']firebase-config\.js[^"']*["'][^>]*><\/script>/i,'<script>'+cfg.replace(/<\/script/gi,'<\\/script')+'<\/script>');
     out=out.replace(/<script[^>]+type=["']module["'][^>]+src=["']app\.js[^"']*["'][^>]*><\/script>/i,'');
     out=out.replace(/<script[^>]+type=["']module["'][^>]+src=["']notes\.js[^"']*["'][^>]*><\/script>/i,'');
