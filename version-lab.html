@@ -34,7 +34,7 @@ async function loadCurrentText(path){
       throw new Error('Open the current Snag app once to migrate this project before running an archived interface.');
     }
     const [html,css,notesCss,cfg,app,notes]=await Promise.all([
-      loadText('index.html'),loadText('styles.css'),loadText('notes.css'),loadCurrentText('firebase-config.js'),loadText('app.js'),loadText('notes.js')
+      loadText('index.html'),loadText('styles.css'),loadText('notes.css'),loadCurrentText('firebase-config.js'),loadText('app.js'),loadCurrentText('notes.js')
     ]);
     let out=html;
     out=out.replace(/<link[^>]+href=["']styles\.css[^"']*["'][^>]*>/i,'<style>'+css.replace(/<\/style/gi,'<\\/style')+'</style>');
