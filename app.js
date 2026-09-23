@@ -568,6 +568,46 @@ function firebaseErrorMessage(e){
   if(code==='auth/network-request-failed')return 'Firebase network request failed';
   return code||e?.message||'Firebase connection failed';
 }
+function firebaseUsageLabel(path=''){
+  const p=String(path||'');
+  if(p.includes('/updates'))return 'snag updates';
+  if(p.includes('/private_notes'))return 'private notes';
+  if(p.includes('/invites'))return 'access invites';
+  if(p.includes('/members/')&&p.includes('/seen'))return 'seen state';
+  if(p.includes('/members'))return 'project members';
+  if(p.includes('/snags'))return 'snags';
+  if(p.startsWith('snag_users/')&&p.includes('/projects'))return 'user project registry';
+  if(p.startsWith('snag_users/'))return 'user identity';
+  if(p.startsWith('snag_projects/'))return 'project';
+  return p.split('/')[0]||'firestore';
+}
+function instrumentFirestoreModule(raw){
+  const labels=new WeakMap(),mon=()=>window.FirebaseUsageMonitor;
+  const remember=ref=>{if(ref&&typeof ref==='object')labels.set(ref,firebaseUsageLabel(ref.path||''));return ref};
+  const label=ref=>labels.get(ref)||firebaseUsageLabel(ref?.path||'');
+  const wrapped={...raw};
+  wrapped.doc=(...a)=>remember(raw.doc(...a));
+  wrapped.collection=(...a)=>remember(raw.collection(...a));
+  wrapped.query=(ref,...a)=>{const q=raw.query(ref,...a);labels.set(q,label(ref));return q};
+  wrapped.getDoc=async ref=>{const x=await raw.getDoc(ref);mon()?.read(1,label(ref),'Snag','snag-509418','(default)');return x};
+  wrapped.getDocs=async ref=>{const x=await raw.getDocs(ref);mon()?.read(Math.max(1,x.size||0),label(ref),'Snag','snag-509418','(default)');return x};
+  wrapped.setDoc=async(...a)=>{const x=await raw.setDoc(...a);mon()?.write(1,label(a[0]),'Snag','snag-509418','(default)');return x};
+  wrapped.updateDoc=async(...a)=>{const x=await raw.updateDoc(...a);mon()?.write(1,label(a[0]),'Snag','snag-509418','(default)');return x};
+  wrapped.deleteDoc=async(...a)=>{const x=await raw.deleteDoc(...a);mon()?.del(1,label(a[0]),'Snag','snag-509418','(default)');return x};
+  wrapped.onSnapshot=(ref,next,error,complete)=>{
+    mon()?.listener(1,label(ref),'Snag','snag-509418','(default)');
+    let first=true;
+    const counted=snap=>{
+      let n=1;
+      if(Array.isArray(snap?.docs)){n=first?Math.max(1,snap.size||0):Math.max(0,snap.docChanges?.().length||0)}
+      if(n)mon()?.read(n,label(ref),'Snag','snag-509418','(default)');
+      first=false;return typeof next==='function'?next(snap):next?.next?.(snap);
+    };
+    if(typeof next==='function')return raw.onSnapshot(ref,counted,error,complete);
+    return raw.onSnapshot(ref,{next:counted,error:e=>next?.error?.(e),complete:()=>next?.complete?.()});
+  };
+  return wrapped;
+}
 async function initFirebase(cfg){
   const run=++firebaseRun;resetCloudDiag();
   const watchdog=setTimeout(()=>{if(run===firebaseRun&&cloudStatus.state==='starting'){const active=cloudDiag.find(x=>x.state==='running');if(active)diagStep(active.name,'error','No response after 18 seconds');cloudStatus={state:'error',message:`Stopped at: ${active?.name||'unknown stage'} · tap for diagnostics`};render();}},18000);
@@ -584,6 +624,7 @@ async function initFirebase(cfg){
       import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-auth.js`)
     ]),12000,'Firebase module import');
     if(run!==firebaseRun)return;
+    fsMod=instrumentFirestoreModule(fsMod);
 
     app=appMod.getApps().length?appMod.getApps()[0]:appMod.initializeApp(cfg);
     try{db=fsMod.initializeFirestore(app,{experimentalForceLongPolling:true,useFetchStreams:false})}catch(e){db=fsMod.getFirestore(app)}auth=authMod.getAuth(app);firebase={appMod,fsMod,authMod,app,db,auth};diagStep('Firestore transport','ok','Forced long polling');
