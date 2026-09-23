@@ -6,7 +6,7 @@ self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=
 self.addEventListener('fetch',event=>{
   if(event.request.method!=='GET')return;
   const url=new URL(event.request.url);
-  const core=url.pathname.endsWith('/snag/')||url.pathname.endsWith('/index.html')||url.pathname.endsWith('/app.js')||url.pathname.endsWith('/notes.js')||url.pathname.endsWith('/firebase-config.js')||url.pathname.endsWith('/version.json')||url.pathname.endsWith('/sw.js');
+  const core=url.pathname.endsWith('/snag/')||url.pathname.endsWith('/index.html')||url.pathname.endsWith('/app.js')||url.pathname.endsWith('/notes.js')||url.pathname.endsWith('/firebase-config.js')||url.pathname.endsWith('/legacy-bridge.html')||url.pathname.endsWith('/version-lab.html')||url.pathname.endsWith('/version.json')||url.pathname.endsWith('/sw.js');
   if(core){
     event.respondWith(fetch(event.request,{cache:'no-store'}));
     return;
