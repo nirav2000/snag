@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Snag legacy migration bridge</title></head>
+<body>
+<script src="firebase-config.js"></script>
+<script type="module">
+const VERSION='12.2.1';
+const SOURCE='snag-legacy-bridge';
+const parentOrigin=location.origin;
+const post=(message)=>parent.postMessage({source:SOURCE,...message},parentOrigin);
+const serialise=value=>JSON.parse(JSON.stringify(value));
+
+let ctx=null;
+async function start(){
+  try{
+    const [appMod,fsMod,authMod]=await Promise.all([
+      import(`https://www.gstatic.com/firebasejs/${VERSION}/firebase-app.js`),
+      import(`https://www.gstatic.com/firebasejs/${VERSION}/firebase-firestore.js`),
+      import(`https://www.gstatic.com/firebasejs/${VERSION}/firebase-auth.js`)
+    ]);
+    const cfg=window.SNAG_CLOUD?.legacy;
+    if(!cfg)throw new Error('Legacy Firebase configuration missing');
+    const app=appMod.initializeApp(cfg);
+    const db=fsMod.getFirestore(app);
+    const auth=authMod.getAuth(app);
+    await auth.authStateReady();
+    ctx={appMod,fsMod,authMod,app,db,auth};
+    post({type:'ready',authenticated:!!auth.currentUser,uid:auth.currentUser?.uid||null});
+  }catch(error){
+    post({type:'ready',authenticated:false,error:error?.message||String(error)});
+  }
+}
+
+async function exportProject(projectId){
+  if(!ctx?.auth?.currentUser)return {status:'no-session'};
+  const {fsMod,db,auth}=ctx,uid=auth.currentUser.uid;
+  const projectRef=fsMod.doc(db,'snag_projects',projectId);
+  const projectSnap=await fsMod.getDoc(projectRef);
+  if(!projectSnap.exists())return {status:'not-found',legacyUid:uid};
+
+  const project={id:projectSnap.id,...projectSnap.data()};
+  const isOwner=project.ownerUid===uid;
+  let member=null;
+  try{
+    const m=await fsMod.getDoc(fsMod.doc(db,'snag_projects',projectId,'members',uid));
+    if(m.exists())member={id:m.id,...m.data()};
+  }catch(error){}
+
+  const snagsSnap=await fsMod.getDocs(fsMod.collection(db,'snag_projects',projectId,'snags'));
+  const snags=[];
+  for(const d of snagsSnap.docs){
+    const updatesSnap=await fsMod.getDocs(fsMod.collection(db,'snag_projects',projectId,'snags',d.id,'updates'));
+    snags.push({id:d.id,...d.data(),updates:updatesSnap.docs.map(u=>({id:u.id,...u.data()}))});
+  }
+
+  const invites=[];
+  if(isOwner){
+    try{
+      const q=await fsMod.getDocs(fsMod.collection(db,'snag_projects',projectId,'invites'));
+      for(const d of q.docs)invites.push({id:d.id,...d.data()});
+    }catch(error){}
+  }else if(member?.inviteId){
+    try{
+      const d=await fsMod.getDoc(fsMod.doc(db,'snag_projects',projectId,'invites',member.inviteId));
+      if(d.exists())invites.push({id:d.id,...d.data()});
+    }catch(error){}
+  }
+
+  const seen=[];
+  if(member){
+    try{
+      const q=await fsMod.getDocs(fsMod.collection(db,'snag_projects',projectId,'members',uid,'seen'));
+      for(const d of q.docs)seen.push({id:d.id,...d.data()});
+    }catch(error){}
+  }
+
+  const privateNotes=[];
+  if(member){
+    try{
+      const q=fsMod.query(
+        fsMod.collection(db,'snag_projects',projectId,'private_notes'),
+        fsMod.where('authorUid','==',uid)
+      );
+      const snap=await fsMod.getDocs(q);
+      for(const d of snap.docs)privateNotes.push({id:d.id,...d.data()});
+    }catch(error){}
+  }
+
+  return serialise({
+    status:'ok',
+    legacyUid:uid,
+    isOwner,
+    project,
+    member,
+    snags,
+    invites,
+    seen,
+    privateNotes
+  });
+}
+
+window.addEventListener('message',async event=>{
+  if(event.origin!==parentOrigin||event.data?.source!=='snag-current-app')return;
+  const {requestId,type,projectId}=event.data;
+  if(type!=='export-project'||!requestId||!projectId)return;
+  try{
+    post({type:'export-result',requestId,data:await exportProject(projectId)});
+  }catch(error){
+    post({type:'export-result',requestId,error:error?.code||error?.message||String(error)});
+  }
+});
+
+start();
+</script>
+</body>
+</html>
