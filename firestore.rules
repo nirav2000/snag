@@ -18,45 +18,84 @@ service cloud.firestore {
     function isAdmin(projectId) {
       return isOwner(projectId) || (isMember(projectId) && memberData(projectId).admin == true);
     }
+    function activeInvite(projectId, inviteId) {
+      return inviteId is string
+        && exists(/databases/$(database)/documents/snag_projects/$(projectId)/invites/$(inviteId))
+        && get(/databases/$(database)/documents/snag_projects/$(projectId)/invites/$(inviteId)).data.active == true;
+    }
 
     match /snag_projects/{projectId} {
-      // New owner projects may be created only for the signed-in identity.
       allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
       allow read: if isOwner(projectId) || isMember(projectId);
-      allow update: if isOwner(projectId) || isAdmin(projectId);
+      allow update: if isAdmin(projectId);
       allow delete: if isOwner(projectId);
 
       match /members/{uid} {
         allow read: if isOwner(projectId) || isMember(projectId);
-        // Owner can create/restore their own membership. Invitees can create
-        // only their own membership after presenting an active invite in-app.
-        allow create: if signedIn() && request.auth.uid == uid &&
-          (isOwner(projectId) || request.resource.data.uid == request.auth.uid);
-        allow update: if isOwner(projectId) || (signedIn() && request.auth.uid == uid);
+        allow create: if signedIn() && request.auth.uid == uid
+          && request.resource.data.uid == request.auth.uid
+          && (
+            isOwner(projectId)
+            || (
+              activeInvite(projectId, request.resource.data.inviteId)
+              && request.resource.data.role ==
+                get(/databases/$(database)/documents/snag_projects/$(projectId)/invites/$(request.resource.data.inviteId)).data.role
+              && request.resource.data.admin ==
+                get(/databases/$(database)/documents/snag_projects/$(projectId)/invites/$(request.resource.data.inviteId)).data.admin
+            )
+          );
+        allow update: if isAdmin(projectId)
+          || (
+            signedIn() && request.auth.uid == uid
+            && resource.data.uid == request.auth.uid
+            && request.resource.data.uid == resource.data.uid
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.admin == resource.data.admin
+            && request.resource.data.inviteId == resource.data.inviteId
+          );
         allow delete: if isOwner(projectId) || (signedIn() && request.auth.uid == uid);
+
         match /seen/{seenId} {
-          allow read, write: if signedIn() && request.auth.uid == uid;
+          allow read, write: if signedIn() && request.auth.uid == uid && isMember(projectId);
         }
       }
 
       match /invites/{inviteId} {
-        // Active invite documents must be readable before membership exists.
-        allow read: if signedIn();
+        allow get: if isAdmin(projectId)
+          || (
+            signedIn()
+            && inviteId.matches('^[A-Za-z0-9_-]{32,120}$')
+            && resource.data.active == true
+          );
+        allow list: if isAdmin(projectId);
         allow create, update, delete: if isAdmin(projectId);
       }
 
       match /snags/{snagId} {
-        allow read, write: if isOwner(projectId) || isMember(projectId);
+        allow read, create, update: if isOwner(projectId) || isMember(projectId);
+        allow delete: if isAdmin(projectId);
+
         match /updates/{updateId} {
-          allow read, write: if isOwner(projectId) || isMember(projectId);
+          allow read, create, update: if isOwner(projectId) || isMember(projectId);
+          allow delete: if isAdmin(projectId);
         }
       }
 
       match /private_notes/{noteId} {
-        allow create: if signedIn() && isMember(projectId) &&
-          request.resource.data.authorUid == request.auth.uid;
-        allow read, update, delete: if signedIn() && isMember(projectId) &&
-          resource.data.authorUid == request.auth.uid;
+        allow get: if isAdmin(projectId)
+          || (isMember(projectId) && resource.data.authorUid == request.auth.uid);
+        allow list: if isAdmin(projectId)
+          || isMember(projectId);
+        allow create: if isMember(projectId)
+          && request.resource.data.authorUid == request.auth.uid;
+        allow update: if isAdmin(projectId)
+          || (
+            isMember(projectId)
+            && resource.data.authorUid == request.auth.uid
+            && request.resource.data.authorUid == resource.data.authorUid
+          );
+        allow delete: if isAdmin(projectId)
+          || (isMember(projectId) && resource.data.authorUid == request.auth.uid);
       }
     }
   }
