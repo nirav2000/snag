@@ -1,0 +1,38 @@
+name: Validate Snag app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "app.js"
+      - "firebase-config.js"
+      - "legacy-bridge.html"
+      - "version-lab.html"
+      - "firestore.rules"
+      - ".github/workflows/validate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Check JavaScript syntax
+        run: node --check app.js
+      - name: Check central cloud configuration
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const cfg=fs.readFileSync('firebase-config.js','utf8');
+          if(!cfg.includes("projectId: 'snag-509418'")) throw new Error('Dedicated Snag project is not primary');
+          if(!cfg.includes("projectId: 'kk-syllabus'")) throw new Error('Legacy migration source missing');
+          const lab=fs.readFileSync('version-lab.html','utf8');
+          if(!lab.includes("loadCurrentText('firebase-config.js')")) throw new Error('Version Lab is not using central cloud config');
+          console.log('Cloud config and Version Lab wiring look correct.');
+          NODE
