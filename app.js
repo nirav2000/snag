@@ -589,6 +589,7 @@ async function initFirebase(cfg){
     diagStep('Authentication','ok',`${auth.currentUser.isAnonymous?'guest':'protected'} ${auth.currentUser.uid.slice(0,8)}…`);
     localStorage.setItem(LS.firebase,JSON.stringify(cfg));
     await restoreProjectsForCurrentUser();
+    await loadCurrentMember();
     const legacyMigration=await migrateLegacyProjectIfNeeded();
     if(legacyMigration?.status==='waiting'){
       cloudStatus={state:'connected',message:'Legacy project loaded locally · waiting for owner migration · your local changes will be retained'};
@@ -601,7 +602,7 @@ async function initFirebase(cfg){
       diagStep('Firestore project','ok','Invite accepted');
       const pending=await migrateLocalProjectToCloud();
       cloudStatus={state:'connected',message:`Shared cloud connected · invite access · ${pending.written}/${pending.total} local changes synced · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};
-    }else if(legacyMigration?.role==='member'){
+    }else if(legacyMigration?.role==='member'||(currentMember&&currentMember.role!=='owner')){
       await loadCurrentMember();
       diagStep('Firestore project','ok','Existing member access restored');
       const pending=await migrateLocalProjectToCloud();
