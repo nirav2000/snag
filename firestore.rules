@@ -26,7 +26,14 @@ service cloud.firestore {
 
     match /snag_projects/{projectId} {
       allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow read: if isOwner(projectId) || isMember(projectId);
+      // A signed-in client may test a random project ID before creating its own
+      // project. Existing project documents remain owner/member-only.
+      allow get: if signedIn() && (
+        !exists(/databases/$(database)/documents/snag_projects/$(projectId))
+        || isOwner(projectId)
+        || isMember(projectId)
+      );
+      allow list: if false;
       allow update: if isAdmin(projectId);
       allow delete: if isOwner(projectId);
 
