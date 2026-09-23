@@ -99,10 +99,10 @@ service cloud.firestore {
       }
 
       match /private_notes/{noteId} {
-        allow get: if isAdmin(projectId)
+        // Firestore rules are not post-query filters. Non-admin users may only
+        // query documents constrained to their own authorUid.
+        allow read: if isAdmin(projectId)
           || (isMember(projectId) && resource.data.authorUid == request.auth.uid);
-        allow list: if isAdmin(projectId)
-          || isMember(projectId);
         allow create: if isMember(projectId)
           && request.resource.data.authorUid == request.auth.uid;
         allow update: if isAdmin(projectId)
