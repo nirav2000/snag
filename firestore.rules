@@ -2,6 +2,16 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
+
+    // Authentication UID is a credential mapping, not the permanent Snag
+    // business identity. Each user owns a private profile containing a stable
+    // snagUserId plus references to projects they can recover on another device.
+    match /snag_users/{uid} {
+      allow read, create, update, delete: if signedIn() && request.auth.uid == uid;
+      match /projects/{projectId} {
+        allow read, create, update, delete: if signedIn() && request.auth.uid == uid;
+      }
+    }
     function projectDoc(projectId) {
       return get(/databases/$(database)/documents/snag_projects/$(projectId));
     }
