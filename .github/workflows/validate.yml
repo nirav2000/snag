@@ -24,7 +24,18 @@ jobs:
         with:
           node-version: "24"
       - name: Check JavaScript syntax
-        run: node --check app.js
+        run: |
+          node --check app.js
+          node --check notes.js
+          node --check cloudflare-worker.js
+          node <<'NODE'
+          const fs=require('fs');
+          const html=fs.readFileSync('legacy-bridge.html','utf8');
+          const scripts=[...html.matchAll(/<script type="module">([\s\S]*?)<\/script>/g)];
+          if(!scripts.length) throw new Error('Legacy bridge module script missing');
+          fs.writeFileSync('/tmp/legacy-bridge.mjs',scripts.map(x=>x[1]).join('\n'));
+          NODE
+          node --check /tmp/legacy-bridge.mjs
       - name: Check central cloud configuration
         run: |
           node <<'NODE'
@@ -32,6 +43,8 @@ jobs:
           const cfg=fs.readFileSync('firebase-config.js','utf8');
           if(!cfg.includes("projectId: 'snag-509418'")) throw new Error('Dedicated Snag project is not primary');
           if(!cfg.includes("projectId: 'kk-syllabus'")) throw new Error('Legacy migration source missing');
+          const wrangler=fs.readFileSync('wrangler.jsonc','utf8');
+          if(!wrangler.includes('AIzaSyBnph6Ob5jhvJZMGvk1cpF0euno__aRtfU')) throw new Error('Media worker does not trust dedicated Snag Firebase');
           const lab=fs.readFileSync('version-lab.html','utf8');
           if(!lab.includes("loadCurrentText('firebase-config.js')")) throw new Error('Version Lab is not using central cloud config');
           console.log('Cloud config and Version Lab wiring look correct.');
