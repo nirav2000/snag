@@ -539,9 +539,9 @@ async function migrateMediaItems(items,pathPrefix){
   }
   return out;
 }
-async function migrateLocalProjectToCloud(){
+async function migrateLocalProjectToCloud(uploadAll=false){
   if(!firebase?.auth?.currentUser)return {total:0,written:0,mediaFailed:0,failed:0};
-  const pending=pendingDirty().filter(s=>s.projectId===selectedProjectId);
+  const pending=uploadAll?state.snags.filter(s=>s.projectId===selectedProjectId):pendingDirty().filter(s=>s.projectId===selectedProjectId);
   let written=0,failed=0,mediaFailed=0;
   if(!pending.length){diagStep('Pending uploads','ok','0 local changes');return {total:0,written:0,mediaFailed:0,failed:0}}
   for(const snag of pending){
@@ -608,11 +608,11 @@ async function initFirebase(cfg){
       const pending=await migrateLocalProjectToCloud();
       cloudStatus={state:'connected',message:`Shared cloud connected · restored member access · ${pending.written}/${pending.total} local changes synced · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};
     }else{
-      await withTimeout(ensureProjectRemote(),9000,'Project setup');
+      const projectSetup=await withTimeout(ensureProjectRemote(),9000,'Project setup');
       diagStep('Firestore project','ok','Owner project available');
-      diagStep('Snag sync','running','Publishing local changes');
+      diagStep('Snag sync','running',projectSetup?.created?'Publishing local project to the new cloud':'Publishing local changes');
       let migration={written:0,total:0,mediaFailed:0};
-      try{migration=await migrateLocalProjectToCloud();diagStep('Pending local changes',migration.failed?'error':'ok',`${migration.written}/${migration.total} uploaded${migration.failed?' · '+migration.failed+' retained':''}`)}
+      try{migration=await migrateLocalProjectToCloud(projectSetup?.created===true);diagStep('Pending local changes',migration.failed?'error':'ok',`${migration.written}/${migration.total} uploaded${migration.failed?' · '+migration.failed+' retained':''}`)}
       catch(e){diagStep('Snag sync','error',firebaseErrorMessage(e));console.warn('Local migration incomplete',e)}
       cloudStatus={state:'connected',message:`Shared cloud connected · owner access · ${migration.written}/${migration.total} local snags synced · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};
     }
@@ -663,12 +663,12 @@ async function ensureProjectRemote(){
     const member=await withTimeout(fsMod.getDoc(memberRef),7000,'Membership read');
     if(member.exists()){
       diagStep('Membership','ok',`${member.data().role||'member'} membership verified`);
-      return;
+      return {created:false};
     }
     diagStep('Membership write','running','Restoring missing owner membership');
     await withTimeout(fsMod.setDoc(memberRef,{uid:auth.currentUser.uid,snagUserId:snagUserId(),name:profile.name,role:'owner',admin:true,joinedAt:now()},{merge:true}),9000,'Membership write');await registerUserProject(p.id,'owner',snagUserId());
     diagStep('Membership write','ok','Owner membership restored');
-    return;
+    return {created:false};
   }
 
   diagStep('Project owner write','running','Creating project');
@@ -677,6 +677,7 @@ async function ensureProjectRemote(){
   diagStep('Membership write','running','Creating owner membership');
   await withTimeout(fsMod.setDoc(memberRef,{uid:auth.currentUser.uid,snagUserId:snagUserId(),name:profile.name,role:'owner',admin:true,joinedAt:now()},{merge:true}),9000,'Membership write');await registerUserProject(p.id,'owner',snagUserId());
   diagStep('Membership write','ok','Owner membership created');
+  return {created:true};
 }
 async function writeSnag(s){const {fsMod,db}=firebase;const clean={...s};delete clean.updates;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),clean,{merge:true});for(const u of s.updates||[])await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});}
 async function writeUpdate(s,u){const {fsMod,db}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),{updatedAt:s.updatedAt},{merge:true});}
