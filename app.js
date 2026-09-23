@@ -546,9 +546,14 @@ async function migrateLocalProjectToCloud(uploadAll=false){
   if(!pending.length){diagStep('Pending uploads','ok','0 local changes');return {total:0,written:0,mediaFailed:0,failed:0}}
   for(const snag of pending){
     const label=`Pending · ${snag.ref||snag.id}`;diagStep(label,'running','Uploading local change');
-    try{await withTimeout(writeSnag(snag),9000,`${label} write`);clearDirty(snag.id);written++;diagStep(label,'ok','Synced')}
-    catch(e){failed++;diagStep(label,'error',firebaseErrorMessage(e));console.warn('Pending snag retained',snag.id,e)}
+    try{
+      const cloudSnag={...snag,media:await migrateMediaItems(snag.media,`snag-projects/${selectedProjectId}/snags/${snag.id}`),updates:[]};
+      for(const update of (snag.updates||[]))cloudSnag.updates.push({...update,media:await migrateMediaItems(update.media,`snag-projects/${selectedProjectId}/snags/${snag.id}/updates`)});
+      await withTimeout(writeSnag(cloudSnag),12000,`${label} write`);
+      Object.assign(snag,cloudSnag);clearDirty(snag.id);written++;diagStep(label,'ok','Synced');
+    }catch(e){failed++;diagStep(label,'error',firebaseErrorMessage(e));console.warn('Pending snag retained',snag.id,e)}
   }
+  saveState();
   return {total:pending.length,written,mediaFailed,failed};
 }
 function resetCloudDiag(){cloudDiag=[];renderCloudDiagnostics()}
