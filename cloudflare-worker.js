@@ -63,7 +63,7 @@ async function usageRoute(request,env,headers,url){
     const aggregate={version:2,date,deviceCount:objects.length,targets:{},hours:{}};
     for(const item of objects){
       const obj=await env.SNAG_MEDIA.get(item.key);if(!obj)continue;
-      try{mergeUsage(await obj.json(),aggregate)}catch{}
+      try{mergeUsage(JSON.parse(await obj.text()),aggregate)}catch{}
     }
     aggregate.generatedAt=new Date().toISOString();
     return Response.json(aggregate,{headers});
