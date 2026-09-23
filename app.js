@@ -200,9 +200,12 @@ function renderTempPreview(files,host){host.innerHTML=files.map((f,i)=>`<div cla
 async function optimiseMediaFile(file){if(!file.type?.startsWith('image/')||file.type==='image/gif'||file.size<900000)return file;try{const bitmap=await createImageBitmap(file),max=2000,scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');canvas.width=Math.round(bitmap.width*scale);canvas.height=Math.round(bitmap.height*scale);canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.82));return blob?new File([blob],(file.name||'photo').replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'}):file}catch(e){console.warn('Photo compression failed',e);return file}}
 async function uploadToR2(file,pathPrefix){
   if(!window.SNAG_R2_API||!firebase?.auth?.currentUser)throw new Error('R2 upload is not configured');
-  const token=await firebase.auth.currentUser.getIdToken();
-  const key=`${pathPrefix}/${uid()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
-  const response=await withTimeout(fetch(`${window.SNAG_R2_API.replace(/\/$/,'')}/objects/${key.split('/').map(encodeURIComponent).join('/')}`,{method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':file.type||'application/octet-stream'},body:file}),10000,'Media upload');
+  const key=`${pathPrefix}/${uid()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`,url=`${window.SNAG_R2_API.replace(/\/$/,'')}/objects/${key.split('/').map(encodeURIComponent).join('/')}`;
+  const send=token=>withTimeout(fetch(url,{method:'PUT',headers:{Authorization:`Bearer ${token}`,'Content-Type':file.type||'application/octet-stream'},body:file}),10000,'Media upload');
+  const token=await firebase.auth.currentUser.getIdToken();let response=await send(token);
+  // Transitional fallback: the deployed Worker may still trust kk-syllabus
+  // until its Cloudflare deployment credentials are connected to GitHub.
+  if(response.status===401){const legacyToken=await legacyMediaToken();if(legacyToken)response=await send(legacyToken)}
   if(!response.ok)throw new Error(`R2 upload failed (${response.status})`);
   const data=await response.json();
   return {url:data.url,key:data.key||key,name:file.name,type:file.type,size:file.size,local:false,storage:'r2'};
@@ -434,6 +437,20 @@ async function exportLegacyProject(projectId){
     window.addEventListener('message',onMessage);
     legacyBridgeFrame.contentWindow.postMessage({source:'snag-current-app',type:'export-project',requestId,projectId},location.origin);
   });
+}
+async function legacyMediaToken(){
+  try{
+    const ready=await ensureLegacyBridge();if(!ready?.authenticated)return null;const requestId=uid();
+    return await new Promise((resolve)=>{
+      const timer=setTimeout(()=>{window.removeEventListener('message',onMessage);resolve(null)},6000);
+      function onMessage(event){
+        if(event.origin!==location.origin||event.source!==legacyBridgeFrame?.contentWindow||event.data?.source!=='snag-legacy-bridge'||event.data?.type!=='token-result'||event.data?.requestId!==requestId)return;
+        clearTimeout(timer);window.removeEventListener('message',onMessage);resolve(event.data.token||null);
+      }
+      window.addEventListener('message',onMessage);
+      legacyBridgeFrame.contentWindow.postMessage({source:'snag-current-app',type:'get-token',requestId},location.origin);
+    });
+  }catch(e){return null}
 }
 function mergeLegacyIntoLocal(data){
   if(!data?.project)return;
