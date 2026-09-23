@@ -1,13 +1,13 @@
 const APP_BUILD='2026.09.22.1545';
 const FIREBASE_VERSION='12.2.1';
-const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1'};
+const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1',userId:'snag-recorder-user-id-v1',migration:'snag-recorder-migration-v2'};
 const now=()=>new Date().toISOString();
 const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const escapeHtml=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const fmt=iso=>new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short'}).format(new Date(iso));
 const statusLabel={'open':'Open','in-progress':'In progress','review':'Needs review','resolved':'Resolved'};
 const priorityRank={Urgent:0,High:1,Normal:2,Low:3};
-let firebase=null, unsubscribe=null, privateNotesUnsubscribe=null, seenUnsubscribe=null, currentMember=null, firebaseRun=0, cloudDiag=[], seenState={}, currentNav='home', pendingFiles=[], detailId=null, mediaRecorder=null, voiceChunks=[], cameraTestStream=null, cameraTestFacing='environment', cloudStatus={state:'starting',message:'Starting Firebase…'}, latestBuild=null, annotationState={source:null,mode:null,index:null,updateId:null,history:[],colour:'#ef4444',image:null};
+let firebase=null, unsubscribe=null, privateNotesUnsubscribe=null, seenUnsubscribe=null, currentMember=null, firebaseRun=0, cloudDiag=[], seenState={}, currentNav='home', pendingFiles=[], detailId=null, mediaRecorder=null, voiceChunks=[], cameraTestStream=null, cameraTestFacing='environment', cloudStatus={state:'starting',message:'Starting Firebase…'}, latestBuild=null, annotationState={source:null,mode:null,index:null,updateId:null,history:[],colour:'#ef4444',image:null}, legacyBridgeFrame=null, legacyBridgeReadyPromise=null;
 let profile=JSON.parse(localStorage.getItem(LS.profile)||'null')||{name:'Me',role:'Client'};
 let state=loadState();
 const launchUrl=new URL(location.href);
@@ -30,6 +30,11 @@ function dirtyMap(){try{return JSON.parse(localStorage.getItem(LS.dirty)||'{}')}
 function markDirty(id,kind='snag'){const d=dirtyMap();d[id]={kind,at:now()};localStorage.setItem(LS.dirty,JSON.stringify(d))}
 function clearDirty(id){const d=dirtyMap();delete d[id];localStorage.setItem(LS.dirty,JSON.stringify(d))}
 function pendingDirty(){const d=dirtyMap();return Object.keys(d).map(id=>state.snags.find(s=>s.id===id)).filter(Boolean)}
+function snagUserId(){let id=localStorage.getItem(LS.userId);if(!id){id=uid();localStorage.setItem(LS.userId,id)}return id}
+function adoptSnagUserId(id){if(id)localStorage.setItem(LS.userId,id);return snagUserId()}
+function migrationMap(){try{return JSON.parse(localStorage.getItem(LS.migration)||'{}')}catch{return {}}}
+function saveMigration(projectId,data){const m=migrationMap();m[projectId]={...(m[projectId]||{}),...data,updatedAt:now()};localStorage.setItem(LS.migration,JSON.stringify(m))}
+function migrationFor(projectId){return migrationMap()[projectId]||null}
 
 function project(){return state.projects.find(p=>p.id===selectedProjectId)||state.projects[0];}
 function projectLocations(){const p=project();return p?.locations?.length?p.locations:['Kitchen','Living room','Dining room','Hall','Landing','Bathroom','Bedroom 1','Bedroom 2','Bedroom 3','Garden','Garage','Loft'];}
@@ -133,7 +138,7 @@ function renderList(){const list=getFiltered();const titles={active:'Active snag
 function renderProjects(){$('projectList').innerHTML=state.projects.map(p=>`<div class="project-option ${p.id===selectedProjectId?'current':''}"><button type="button" data-project="${p.id}"><strong>${escapeHtml(p.name)}</strong><div class="subtle">${escapeHtml(p.address||p.type)}</div></button><span>${projectSnagCount(p.id)}</span></div>`).join('');$('projectList').querySelectorAll('[data-project]').forEach(b=>b.onclick=()=>selectProject(b.dataset.project));}
 function projectSnagCount(pid){return state.snags.filter(s=>s.projectId===pid&&s.status!=='resolved').length;}
 function selectProject(id){selectedProjectId=id;state.selectedProjectId=id;saveState();const u=new URL(location.href);u.searchParams.set('project',id);history.replaceState({},'',u);$('projectDialog').close();if(firebase) subscribeFirebase();render();}
-function renderSettings(){const p=project();if($('guidesEnabledInput'))$('guidesEnabledInput').checked=guidesEnabled();if($('projectLocationsInput'))$('projectLocationsInput').value=(p?.locations||[]).join('\n');if($('projectAssigneesInput'))$('projectAssigneesInput').value=(p?.assignees||[]).join('\n');$('profileNameInput').value=profile.name;$('profileRoleInput').value=profile.role;const raw=localStorage.getItem(LS.firebase)||'';$('firebaseConfigInput').value=raw;const live=!!firebase?.auth?.currentUser;$('firebaseStatusTitle').textContent=live?'Connected':'Local mode';$('firebaseBadge').className=`badge ${live?'good':'neutral'}`;$('firebaseBadge').textContent=live?'Connected':'Not signed in';$('shareWarning').classList.toggle('hidden',live);}
+function renderSettings(){const p=project();if($('guidesEnabledInput'))$('guidesEnabledInput').checked=guidesEnabled();if($('projectLocationsInput'))$('projectLocationsInput').value=(p?.locations||[]).join('\n');if($('projectAssigneesInput'))$('projectAssigneesInput').value=(p?.assignees||[]).join('\n');$('profileNameInput').value=profile.name;$('profileRoleInput').value=profile.role;const cfg=window.SNAG_FIREBASE_CONFIG||null;if($('firebaseConfigInput')){$('firebaseConfigInput').value=cfg?JSON.stringify(cfg,null,2):'';$('firebaseConfigInput').readOnly=true}const user=firebase?.auth?.currentUser,live=!!user;$('firebaseStatusTitle').textContent=live?'Connected':'Local mode';$('firebaseBadge').className=`badge ${live?'good':'neutral'}`;$('firebaseBadge').textContent=live?'Connected':'Not signed in';$('shareWarning').classList.toggle('hidden',live);if($('accountProtectionStatus')){$('accountProtectionStatus').textContent=!user?'Cloud connection required':user.isAnonymous?'Temporary access on this device':'Protected account · '+(user.email||user.providerData?.[0]?.providerId||'signed in');$('accountProtectionStatus').className=user&&!user.isAnonymous?'notice success':'notice'}if($('protectAccountFields'))$('protectAccountFields').classList.toggle('hidden',!!user&&!user.isAnonymous);if($('protectedAccountActions'))$('protectedAccountActions').classList.toggle('hidden',!user||user.isAnonymous);}
 function openDetail(id){detailId=id;const s=state.snags.find(x=>x.id===id);if(!s)return;markSnagSeen(id);$('detailRef').textContent=s.ref;$('detailTitle').textContent=s.title;renderDetail(s);$('detailDrawer').classList.remove('hidden');$('backdrop').classList.remove('hidden');$('detailDrawer').setAttribute('aria-hidden','false');}
 function closeDetail(){$('detailDrawer').classList.add('hidden');$('backdrop').classList.add('hidden');$('detailDrawer').setAttribute('aria-hidden','true');detailId=null;}
 function mediaHtml(items=[],context='snag'){if(!items.length)return'';return `<div class="media-grid">${items.map((m,i)=>m.type?.startsWith('image')?`<div class="media-item media-image-card"><a href="${escapeHtml(m.url)}" target="_blank"><img src="${escapeHtml(m.url)}" alt="Attachment"></a><div class="media-version-actions"><button type="button" data-annotate-media="${i}" data-media-context="${escapeHtml(context)}">✎ Mark up</button>${m.originalUrl?`<a href="${escapeHtml(m.originalUrl)}" target="_blank">View original</a>`:''}</div></div>`:m.type?.startsWith('video')?`<div class="media-item"><video src="${escapeHtml(m.url)}" controls playsinline></video></div>`:m.type?.startsWith('audio')?`<div class="media-item"><audio src="${escapeHtml(m.url)}" controls></audio></div>`:`<a class="media-item" href="${escapeHtml(m.url)}" target="_blank">Open file</a>`).join('')}</div>`;}
@@ -396,11 +401,124 @@ async function renderAccessLinks(){
 }
 async function revokeInvite(inviteId){const {fsMod,db}=firebase;await fsMod.updateDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:false,revokedAt:now()});await renderAccessLinks();toast('Access link revoked');}
 function randomCapability(){const b=new Uint8Array(32);crypto.getRandomValues(b);return btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
-async function connectFirebase(){try{const raw=$('firebaseConfigInput').value.trim();const cfg=raw?JSON.parse(raw):window.SNAG_FIREBASE_CONFIG;if(!cfg)throw new Error('Missing config');localStorage.setItem(LS.firebase,JSON.stringify(cfg));await initFirebase(cfg);toast('Firebase connected');render();}catch(e){console.error(e);toast('Firebase config could not be connected');}}
+async function connectFirebase(){try{const cfg=window.SNAG_FIREBASE_CONFIG;if(!cfg)throw new Error('Missing central config');localStorage.setItem(LS.firebase,JSON.stringify(cfg));await initFirebase(cfg);toast('Firebase connected');render();}catch(e){console.error(e);toast('Firebase config could not be connected');}}
 
 function rememberSharedAccess(projectId,inviteId,role){
   if(!projectId||!inviteId)return;
   localStorage.setItem(LS.access,JSON.stringify({projectId,inviteId,role:role||'contractor',savedAt:now()}));
+}
+function ensureLegacyBridge(){
+  if(!window.SNAG_CLOUD?.legacy)return Promise.resolve({authenticated:false});
+  if(legacyBridgeReadyPromise)return legacyBridgeReadyPromise;
+  legacyBridgeReadyPromise=new Promise((resolve,reject)=>{
+    const frame=document.createElement('iframe');legacyBridgeFrame=frame;frame.hidden=true;frame.setAttribute('aria-hidden','true');
+    const timer=setTimeout(()=>{window.removeEventListener('message',onMessage);reject(new Error('Legacy migration bridge timed out'))},10000);
+    function onMessage(event){
+      if(event.origin!==location.origin||event.source!==frame.contentWindow||event.data?.source!=='snag-legacy-bridge'||event.data?.type!=='ready')return;
+      clearTimeout(timer);window.removeEventListener('message',onMessage);resolve(event.data);
+    }
+    window.addEventListener('message',onMessage);frame.src='legacy-bridge.html?v='+encodeURIComponent(APP_BUILD);document.body.appendChild(frame);
+  });
+  return legacyBridgeReadyPromise;
+}
+async function exportLegacyProject(projectId){
+  const ready=await ensureLegacyBridge();
+  if(!ready?.authenticated)return {status:'no-session'};
+  const requestId=uid();
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{window.removeEventListener('message',onMessage);reject(new Error('Legacy project export timed out'))},15000);
+    function onMessage(event){
+      if(event.origin!==location.origin||event.source!==legacyBridgeFrame?.contentWindow||event.data?.source!=='snag-legacy-bridge'||event.data?.type!=='export-result'||event.data?.requestId!==requestId)return;
+      clearTimeout(timer);window.removeEventListener('message',onMessage);if(event.data.error)reject(new Error(event.data.error));else resolve(event.data.data);
+    }
+    window.addEventListener('message',onMessage);
+    legacyBridgeFrame.contentWindow.postMessage({source:'snag-current-app',type:'export-project',requestId,projectId},location.origin);
+  });
+}
+function mergeLegacyIntoLocal(data){
+  if(!data?.project)return;
+  const legacyProject={...data.project,id:data.project.id||selectedProjectId},localProject=state.projects.find(p=>p.id===selectedProjectId);
+  const mergedProject={...legacyProject,...(localProject||{}),id:selectedProjectId};
+  const pi=state.projects.findIndex(p=>p.id===selectedProjectId);if(pi>=0)state.projects[pi]=mergedProject;else state.projects.push(mergedProject);
+  const dirty=dirtyMap();
+  for(const remote of data.snags||[]){
+    const snag={...remote,id:remote.id,projectId:selectedProjectId},i=state.snags.findIndex(x=>x.id===snag.id);
+    if(i<0)state.snags.push(snag);else if(!dirty[snag.id])state.snags[i]=snag;
+  }
+  saveState();
+}
+async function registerUserProject(projectId,role='member',stableId=snagUserId()){
+  if(!firebase?.auth?.currentUser)return;
+  const {fsMod,db,auth}=firebase,uidNow=auth.currentUser.uid;
+  await fsMod.setDoc(fsMod.doc(db,'snag_users',uidNow),{uid:uidNow,snagUserId:stableId,lastSeenAt:now(),protected:!auth.currentUser.isAnonymous,email:auth.currentUser.email||null},{merge:true});
+  await fsMod.setDoc(fsMod.doc(db,'snag_users',uidNow,'projects',projectId),{projectId,role,lastSeenAt:now()},{merge:true});
+}
+async function restoreProjectsForCurrentUser(){
+  if(!firebase?.auth?.currentUser)return 0;
+  const {fsMod,db,auth}=firebase,uidNow=auth.currentUser.uid;
+  try{
+    const profileSnap=await fsMod.getDoc(fsMod.doc(db,'snag_users',uidNow));if(profileSnap.exists())adoptSnagUserId(profileSnap.data().snagUserId);
+    const refs=await fsMod.getDocs(fsMod.collection(db,'snag_users',uidNow,'projects'));let restored=0;
+    for(const d of refs.docs){
+      try{const pSnap=await fsMod.getDoc(fsMod.doc(db,'snag_projects',d.id));if(!pSnap.exists())continue;const p={id:d.id,...pSnap.data()},i=state.projects.findIndex(x=>x.id===d.id);if(i>=0)state.projects[i]=p;else state.projects.push(p);restored++;}catch(e){}
+    }
+    if(restored){const known=refs.docs.find(d=>state.projects.some(p=>p.id===d.id));if(known){selectedProjectId=known.id;state.selectedProjectId=known.id}saveState()}
+    return restored;
+  }catch(e){console.warn('Could not restore protected projects',e);return 0}
+}
+async function migrateLegacyProjectIfNeeded(){
+  if(!firebase?.auth?.currentUser||!window.SNAG_CLOUD?.legacy||window.SNAG_CLOUD.legacy.projectId===window.SNAG_FIREBASE_CONFIG?.projectId)return {status:'none'};
+  const newUid=firebase.auth.currentUser.uid,record=migrationFor(selectedProjectId);
+  if(record?.status==='complete'&&record?.primaryUid===newUid)return {status:'complete',role:record.role||'owner'};
+  diagStep('Legacy migration','running','Checking kk-syllabus read-only archive');
+  let legacy;
+  try{legacy=await exportLegacyProject(selectedProjectId)}catch(e){diagStep('Legacy migration','error',e.message);return {status:'unavailable'}}
+  if(!legacy||legacy.status!=='ok'){diagStep('Legacy migration','ok',legacy?.status==='no-session'?'No previous Firebase session on this device':'No legacy project found');return {status:legacy?.status||'none'}}
+
+  mergeLegacyIntoLocal(legacy);
+  const stableId=legacy.member?.snagUserId||legacy.project?.ownerSnagUserId||snagUserId();adoptSnagUserId(stableId);
+  const {fsMod,db,auth}=firebase,projectId=selectedProjectId;
+  if(legacy.isOwner){
+    const ref=fsMod.doc(db,'snag_projects',projectId);
+    let snap=await fsMod.getDoc(ref);
+    if(!snap.exists()){
+      const p={...legacy.project,...project(),id:undefined,ownerUid:newUid,ownerSnagUserId:stableId,legacyOwnerUid:legacy.legacyUid,migratedFrom:'kk-syllabus',migratedAt:now(),updatedAt:now()};delete p.id;
+      await fsMod.setDoc(ref,p);
+      snap=await fsMod.getDoc(ref);
+    }else if(snap.data().ownerUid!==newUid){
+      throw new Error('This project has already been migrated by a different Firebase identity');
+    }
+    await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'members',newUid),{uid:newUid,snagUserId:stableId,name:profile.name,role:'owner',admin:true,legacyUid:legacy.legacyUid,joinedAt:legacy.member?.joinedAt||now(),migratedAt:now()},{merge:true});
+    for(const invite of legacy.invites||[]){const {id,...data}=invite;await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'invites',id),data,{merge:true})}
+    for(const snag of legacy.snags||[]){const {updates=[],id,...data}=snag;await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'snags',id),{...data,projectId},{merge:true});for(const update of updates){const {id:uid2,...u}=update;await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'snags',id,'updates',uid2),u,{merge:true})}}
+    for(const seen of legacy.seen||[]){const {id,...data}=seen;await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'members',newUid,'seen',id),data,{merge:true})}
+    for(const note of legacy.privateNotes||[]){const {id,...data}=note;await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'private_notes',id),{...data,authorUid:newUid,legacyAuthorUid:legacy.legacyUid},{merge:true})}
+    currentMember={uid:newUid,snagUserId:stableId,name:profile.name,role:'owner',admin:true};
+    await registerUserProject(projectId,'owner',stableId);
+    saveMigration(projectId,{status:'complete',role:'owner',legacyUid:legacy.legacyUid,primaryUid:newUid});
+    diagStep('Legacy migration','ok',`${legacy.snags?.length||0} snags and ${legacy.invites?.length||0} access links migrated`);
+    return {status:'complete',role:'owner'};
+  }
+
+  const member=legacy.member,inviteId=member?.inviteId||((savedAccess?.projectId===projectId)?savedAccess?.inviteId:null);
+  if(inviteId){
+    try{
+      await joinInvitedProject(projectId,inviteId);
+      const memberRef=fsMod.doc(db,'snag_projects',projectId,'members',newUid);
+      await fsMod.setDoc(memberRef,{snagUserId:stableId,legacyUid:legacy.legacyUid,migratedAt:now()},{merge:true});
+      for(const seen of legacy.seen||[]){const {id,...data}=seen;await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'members',newUid,'seen',id),data,{merge:true})}
+      for(const note of legacy.privateNotes||[]){const {id,...data}=note;await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'private_notes',id),{...data,authorUid:newUid,legacyAuthorUid:legacy.legacyUid},{merge:true})}
+      await registerUserProject(projectId,member?.role||'member',stableId);
+      saveMigration(projectId,{status:'complete',role:'member',legacyUid:legacy.legacyUid,primaryUid:newUid});
+      diagStep('Legacy migration','ok','Existing member access restored');
+      return {status:'complete',role:'member'};
+    }catch(e){
+      console.warn('Project owner has not migrated the shared project yet',e);
+    }
+  }
+  saveMigration(projectId,{status:'waiting',role:'member',legacyUid:legacy.legacyUid,primaryUid:newUid});
+  diagStep('Legacy migration','waiting','Legacy data loaded locally; waiting for the project owner to migrate shared access');
+  return {status:'waiting',role:'member'};
 }
 function dataUrlToFile(item){
   if(!item?.url?.startsWith('data:'))return null;
@@ -468,13 +586,24 @@ async function initFirebase(cfg){
     try{await withTimeout(auth.authStateReady(),7000,'Firebase auth state')}catch(e){console.warn(e)}
     if(!auth.currentUser)await withTimeout(authMod.signInAnonymously(auth),10000,'Anonymous sign-in');
     if(run!==firebaseRun)return;
-    diagStep('Authentication','ok',`guest ${auth.currentUser.uid.slice(0,8)}…`);
+    diagStep('Authentication','ok',`${auth.currentUser.isAnonymous?'guest':'protected'} ${auth.currentUser.uid.slice(0,8)}…`);
+    localStorage.setItem(LS.firebase,JSON.stringify(cfg));
+    await restoreProjectsForCurrentUser();
+    const legacyMigration=await migrateLegacyProjectIfNeeded();
+    if(legacyMigration?.status==='waiting'){
+      cloudStatus={state:'connected',message:'Legacy project loaded locally · waiting for owner migration · your local changes will be retained'};
+      clearTimeout(watchdog);render();return;
+    }
 
     diagStep('Firestore project','running',selectedProjectId);
     if(launchProjectId&&launchInviteId){
       await withTimeout(joinInvitedProject(launchProjectId,launchInviteId),9000,'Project invite');
       diagStep('Firestore project','ok','Invite accepted');
       cloudStatus={state:'connected',message:`Shared cloud connected · invite access · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};
+    }else if(legacyMigration?.role==='member'){
+      await loadCurrentMember();
+      diagStep('Firestore project','ok','Existing member access restored');
+      cloudStatus={state:'connected',message:`Shared cloud connected · restored member access · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};
     }else{
       await withTimeout(ensureProjectRemote(),9000,'Project setup');
       diagStep('Firestore project','ok','Owner project available');
@@ -500,7 +629,7 @@ async function joinInvitedProject(projectId,inviteId){
   if(!inviteSnap.exists()||inviteSnap.data().active!==true)throw new Error('Invite is invalid or has been revoked');
   const invite=inviteSnap.data(),role=invite.role||'contractor';
   rememberSharedAccess(projectId,inviteId,role);
-  currentMember={uid:auth.currentUser.uid,name:profile.name,role,admin:invite.admin===true,label:invite.label||'',inviteId,joinedAt:now()};await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'members',auth.currentUser.uid),currentMember,{merge:true});
+  currentMember={uid:auth.currentUser.uid,snagUserId:snagUserId(),name:profile.name,role,admin:invite.admin===true,label:invite.label||'',inviteId,joinedAt:now()};await fsMod.setDoc(fsMod.doc(db,'snag_projects',projectId,'members',auth.currentUser.uid),currentMember,{merge:true});await registerUserProject(projectId,role,currentMember.snagUserId);
   const pSnap=await fsMod.getDoc(fsMod.doc(db,'snag_projects',projectId));
   if(!pSnap.exists())throw new Error('Project not found');
   const p={id:projectId,...pSnap.data()};
@@ -532,30 +661,57 @@ async function ensureProjectRemote(){
       return;
     }
     diagStep('Membership write','running','Restoring missing owner membership');
-    await withTimeout(fsMod.setDoc(memberRef,{uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()},{merge:true}),9000,'Membership write');
+    await withTimeout(fsMod.setDoc(memberRef,{uid:auth.currentUser.uid,snagUserId:snagUserId(),name:profile.name,role:'owner',admin:true,joinedAt:now()},{merge:true}),9000,'Membership write');await registerUserProject(p.id,'owner',snagUserId());
     diagStep('Membership write','ok','Owner membership restored');
     return;
   }
 
   diagStep('Project owner write','running','Creating project');
-  await withTimeout(fsMod.setDoc(ref,{...p,ownerUid:auth.currentUser.uid,updatedAt:now()},{merge:true}),9000,'Project owner write');
+  await withTimeout(fsMod.setDoc(ref,{...p,ownerUid:auth.currentUser.uid,ownerSnagUserId:snagUserId(),updatedAt:now()},{merge:true}),9000,'Project owner write');
   diagStep('Project owner write','ok','Project created');
   diagStep('Membership write','running','Creating owner membership');
-  await withTimeout(fsMod.setDoc(memberRef,{uid:auth.currentUser.uid,name:profile.name,role:'owner',admin:true,joinedAt:now()},{merge:true}),9000,'Membership write');
+  await withTimeout(fsMod.setDoc(memberRef,{uid:auth.currentUser.uid,snagUserId:snagUserId(),name:profile.name,role:'owner',admin:true,joinedAt:now()},{merge:true}),9000,'Membership write');await registerUserProject(p.id,'owner',snagUserId());
   diagStep('Membership write','ok','Owner membership created');
 }
 async function writeSnag(s){const {fsMod,db}=firebase;const clean={...s};delete clean.updates;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),clean,{merge:true});for(const u of s.updates||[])await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});}
 async function writeUpdate(s,u){const {fsMod,db}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),{updatedAt:s.updatedAt},{merge:true});}
 async function subscribeFirebase(){if(!firebase?.auth?.currentUser)return;unsubscribe?.();await loadCurrentMember();await subscribeSeenState();const {fsMod,db}=firebase;const q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'snags'),fsMod.orderBy('updatedAt','desc'));unsubscribe=fsMod.onSnapshot(q,async snap=>{for(const d of snap.docs){const data={id:d.id,...d.data()};const us=await fsMod.getDocs(fsMod.collection(db,'snag_projects',selectedProjectId,'snags',d.id,'updates'));data.updates=us.docs.map(x=>({id:x.id,...x.data()}));const i=state.snags.findIndex(x=>x.id===data.id);if(i>=0)state.snags[i]=data;else state.snags.push(data);clearDirty(data.id);}saveState();render();if(detailId)openDetail(detailId);},e=>console.warn('Firestore listener',e));}
 
-async function loadCurrentMember(){if(!firebase?.auth?.currentUser)return;try{const {fsMod,db,auth}=firebase,s=await fsMod.getDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'members',auth.currentUser.uid));currentMember=s.exists()?{id:s.id,...s.data()}:null}catch{currentMember=null}}
+async function loadCurrentMember(){if(!firebase?.auth?.currentUser)return;try{const {fsMod,db,auth}=firebase,s=await fsMod.getDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'members',auth.currentUser.uid));currentMember=s.exists()?{id:s.id,...s.data()}:null;if(currentMember?.snagUserId)adoptSnagUserId(currentMember.snagUserId)}catch{currentMember=null}}
 async function openMyNotes(){if(!firebase?.auth?.currentUser)return toast('Cloud connection required');$('myNotesDialog').showModal();subscribePrivateNotes();}
 function subscribePrivateNotes(){
   privateNotesUnsubscribe?.();const {fsMod,db,auth}=firebase;
-  const q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'private_notes'),fsMod.orderBy('createdAt','desc'));
-  privateNotesUnsubscribe=fsMod.onSnapshot(q,snap=>{const notes=snap.docs.map(d=>({id:d.id,...d.data()})).filter(n=>n.authorUid===auth.currentUser.uid);$('privateNotesList').innerHTML=notes.length?notes.map(n=>`<article class="private-note-card"><div><strong>${escapeHtml(n.authorName||'Note')}</strong><span>${fmt(n.createdAt)}</span></div><p>${escapeHtml(n.text)}</p>${n.snagRef?`<small>${escapeHtml(n.snagRef)}</small>`:''}</article>`).join(''):'<p class="subtle">No private notes yet.</p>';},e=>{$('privateNotesList').innerHTML='<p class="subtle">Private notes are unavailable until the security update finishes deploying.</p>';console.warn(e)});
+  const q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'private_notes'),fsMod.where('authorUid','==',auth.currentUser.uid),fsMod.orderBy('createdAt','desc'));
+  privateNotesUnsubscribe=fsMod.onSnapshot(q,snap=>{const notes=snap.docs.map(d=>({id:d.id,...d.data()}));$('privateNotesList').innerHTML=notes.length?notes.map(n=>`<article class="private-note-card"><div><strong>${escapeHtml(n.authorName||'Note')}</strong><span>${fmt(n.createdAt)}</span></div><p>${escapeHtml(n.text)}</p>${n.snagRef?`<small>${escapeHtml(n.snagRef)}</small>`:''}</article>`).join(''):'<p class="subtle">No private notes yet.</p>';},e=>{$('privateNotesList').innerHTML='<p class="subtle">Private notes are unavailable until the security update finishes deploying.</p>';console.warn(e)});
 }
-async function addPrivateNote(){const text=$('privateNoteText').value.trim();if(!text)return;const {fsMod,db,auth}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'private_notes',uid()),{text,authorUid:auth.currentUser.uid,authorName:profile.name,createdAt:now()});$('privateNoteText').value='';}
+async function addPrivateNote(){const text=$('privateNoteText').value.trim();if(!text)return;const {fsMod,db,auth}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'private_notes',uid()),{text,authorUid:auth.currentUser.uid,authorSnagUserId:snagUserId(),authorName:profile.name,createdAt:now()});$('privateNoteText').value='';}
+async function protectAccessWithEmail(){
+  if(!firebase?.auth?.currentUser)return toast('Cloud connection required');
+  const email=$('protectEmailInput')?.value.trim(),password=$('protectPasswordInput')?.value||'';
+  if(!email||password.length<6)return toast('Enter an email and a password of at least 6 characters');
+  try{
+    const {authMod,auth}=firebase;
+    if(!auth.currentUser.isAnonymous)return toast('This access is already protected');
+    const credential=authMod.EmailAuthProvider.credential(email,password);
+    await authMod.linkWithCredential(auth.currentUser,credential);
+    await registerUserProject(selectedProjectId,currentMember?.role||'owner',snagUserId());
+    toast('Access protected. You can now sign in on another device.');renderSettings();
+  }catch(e){console.error(e);toast(e?.code==='auth/email-already-in-use'?'That email already has a protected Snag account. Use Sign in instead.':firebaseErrorMessage(e))}
+}
+async function signInProtectedAccess(){
+  if(!firebase)return toast('Cloud connection required');
+  const email=$('protectEmailInput')?.value.trim(),password=$('protectPasswordInput')?.value||'';
+  if(!email||!password)return toast('Enter your email and password');
+  try{
+    const {authMod,auth}=firebase;await authMod.signInWithEmailAndPassword(auth,email,password);
+    const restored=await restoreProjectsForCurrentUser();await loadCurrentMember();if(restored)await subscribeFirebase();
+    toast(restored?'Protected access restored':'Signed in. No saved Snag projects were found yet.');render();
+  }catch(e){console.error(e);toast('Could not sign in with that email and password')}
+}
+async function sendProtectedPasswordReset(){
+  if(!firebase)return toast('Cloud connection required');const email=$('protectEmailInput')?.value.trim();if(!email)return toast('Enter your email first');
+  try{await firebase.authMod.sendPasswordResetEmail(firebase.auth,email);toast('Password reset email sent')}catch(e){console.error(e);toast('Could not send password reset email')}
+}
 function disconnectFirebase(){unsubscribe?.();unsubscribe=null;firebase=null;localStorage.removeItem(LS.firebase);toast('Using local mode');render();}
 const VERSION_LAB=[
   {label:'Handover 1115',build:'2026.09.22.1115',ref:'c227e76ef12324ff0dccecce49047a5bfa799255',note:'Premium Handover design'},
@@ -597,5 +753,5 @@ async function hardRefreshApp(){
   }catch(e){console.warn(e)}
   const u=new URL(location.href);u.searchParams.set('_build',Date.now());location.replace(u.toString());
 }
-function bind(){bindAnnotationCanvas();$('editSnagForm').onsubmit=saveSnagEdit;$('closeGuideButton').onclick=finishGuide;$('finishGuideButton').onclick=finishGuide;if($('homeSearchInput'))$('homeSearchInput').onchange=e=>{view.search=e.target.value;setNav('snags');$('searchInput').value=view.search;renderList()};if($('homeFilterButton'))$('homeFilterButton').onclick=()=>{setNav('snags');$('filterPanel').classList.remove('hidden')};if($('homeGridButton'))$('homeGridButton').onclick=()=>setNav('snags');if($('seeAllSnags'))$('seeAllSnags').onclick=()=>setNav('snags');document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.onclick=()=>setNav(b.dataset.nav));if($('notificationButton'))$('notificationButton').onclick=()=>{setNav('home');setTimeout(()=>$('recentActivity')?.scrollIntoView({behavior:'smooth',block:'start'}),30)};$('feedbackButton').onclick=()=>{if(window.openSnagFeedback)window.openSnagFeedback();else toast('Feedback tool is loading…')};$('closeMyNotes').onclick=()=>$('myNotesDialog').close();$('addPrivateNote').onclick=addPrivateNote;$('annotationCancel').onclick=()=>$('annotateDialog').close();$('annotationSave').onclick=saveAnnotation;$('annotationUndo').onclick=()=>{annotationState.history.pop();redrawAnnotation()};$('annotationClear').onclick=()=>{annotationState.history=[];redrawAnnotation()};document.querySelectorAll('[data-annotation-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-annotation-tool]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');annotationState.colour=b.dataset.annotationTool==='yellow'?'#facc15':b.dataset.annotationTool==='black'?'#111827':'#ef4444'});document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('projectCoverInput').onchange=e=>{const f=e.target.files?.[0];e.target.value='';if(f)setProjectCover(f)};$('removeProjectCoverButton').onclick=removeProjectCover;$('manageRoomsButton').onclick=openRoomManager;$('openRoomManagerButton').onclick=openRoomManager;$('closeRoomManager').onclick=()=>$('roomManagerDialog').close();$('guidesEnabledInput').onchange=e=>{localStorage.setItem(LS.guidesEnabled,e.target.checked?'1':'0');toast(e.target.checked?'Quick guides enabled':'Quick guides disabled')};$('showGuideNowButton').onclick=()=>showGuide(isAdmin()?'owner':'contractor');$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;if($('syncPill'))$('syncPill').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;setNav('snags');render()});$('createProjectButton').onclick=()=>{const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProjectSetupButton').onclick=async()=>{const p=project();p.locations=$('projectLocationsInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.assignees=$('projectAssigneesInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.updatedAt=now();saveState();if(firebase)await ensureProjectRemote();render();toast('Project setup saved')};$('createShareLinkButton').onclick=createShareLink;$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));render();toast('Identity saved')};$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});if($('buildBadge'))$('buildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};if($('mobileBuildBadge'))$('mobileBuildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
-bind();render();checkLatestBuild();const cfg=window.SNAG_FIREBASE_CONFIG||JSON.parse(localStorage.getItem(LS.firebase)||'null');if(cfg)initFirebase(cfg).then(render).catch(e=>{console.warn(e);if(cloudStatus.state!=='error')cloudStatus={state:'error',message:firebaseErrorMessage(e)};render();});
+function bind(){bindAnnotationCanvas();$('editSnagForm').onsubmit=saveSnagEdit;$('closeGuideButton').onclick=finishGuide;$('finishGuideButton').onclick=finishGuide;if($('homeSearchInput'))$('homeSearchInput').onchange=e=>{view.search=e.target.value;setNav('snags');$('searchInput').value=view.search;renderList()};if($('homeFilterButton'))$('homeFilterButton').onclick=()=>{setNav('snags');$('filterPanel').classList.remove('hidden')};if($('homeGridButton'))$('homeGridButton').onclick=()=>setNav('snags');if($('seeAllSnags'))$('seeAllSnags').onclick=()=>setNav('snags');document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.onclick=()=>setNav(b.dataset.nav));if($('notificationButton'))$('notificationButton').onclick=()=>{setNav('home');setTimeout(()=>$('recentActivity')?.scrollIntoView({behavior:'smooth',block:'start'}),30)};$('feedbackButton').onclick=()=>{if(window.openSnagFeedback)window.openSnagFeedback();else toast('Feedback tool is loading…')};$('closeMyNotes').onclick=()=>$('myNotesDialog').close();$('addPrivateNote').onclick=addPrivateNote;$('annotationCancel').onclick=()=>$('annotateDialog').close();$('annotationSave').onclick=saveAnnotation;$('annotationUndo').onclick=()=>{annotationState.history.pop();redrawAnnotation()};$('annotationClear').onclick=()=>{annotationState.history=[];redrawAnnotation()};document.querySelectorAll('[data-annotation-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-annotation-tool]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');annotationState.colour=b.dataset.annotationTool==='yellow'?'#facc15':b.dataset.annotationTool==='black'?'#111827':'#ef4444'});document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('projectCoverInput').onchange=e=>{const f=e.target.files?.[0];e.target.value='';if(f)setProjectCover(f)};$('removeProjectCoverButton').onclick=removeProjectCover;$('manageRoomsButton').onclick=openRoomManager;$('openRoomManagerButton').onclick=openRoomManager;$('closeRoomManager').onclick=()=>$('roomManagerDialog').close();$('guidesEnabledInput').onchange=e=>{localStorage.setItem(LS.guidesEnabled,e.target.checked?'1':'0');toast(e.target.checked?'Quick guides enabled':'Quick guides disabled')};$('showGuideNowButton').onclick=()=>showGuide(isAdmin()?'owner':'contractor');$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;if($('syncPill'))$('syncPill').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;setNav('snags');render()});$('createProjectButton').onclick=()=>{const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProjectSetupButton').onclick=async()=>{const p=project();p.locations=$('projectLocationsInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.assignees=$('projectAssigneesInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.updatedAt=now();saveState();if(firebase)await ensureProjectRemote();render();toast('Project setup saved')};$('createShareLinkButton').onclick=createShareLink;$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));render();toast('Identity saved')};if($('protectEmailButton'))$('protectEmailButton').onclick=protectAccessWithEmail;if($('signInProtectedButton'))$('signInProtectedButton').onclick=signInProtectedAccess;if($('resetProtectedPasswordButton'))$('resetProtectedPasswordButton').onclick=sendProtectedPasswordReset;$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});if($('buildBadge'))$('buildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};if($('mobileBuildBadge'))$('mobileBuildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
+bind();render();checkLatestBuild();const cfg=window.SNAG_FIREBASE_CONFIG||JSON.parse(localStorage.getItem(LS.firebase)||'null');if(cfg){localStorage.setItem(LS.firebase,JSON.stringify(cfg));initFirebase(cfg).then(render).catch(e=>{console.warn(e);if(cloudStatus.state!=='error')cloudStatus={state:'error',message:firebaseErrorMessage(e)};render();});}
