@@ -102,13 +102,7 @@ async function exportProject(projectId){
 window.addEventListener('message',async event=>{
   if(event.origin!==parentOrigin||event.data?.source!=='snag-current-app')return;
   const {requestId,type,projectId}=event.data;
-  if(!requestId)return;
-  if(type==='get-token'){
-    try{post({type:'token-result',requestId,token:ctx?.auth?.currentUser?await ctx.auth.currentUser.getIdToken():null})}
-    catch(error){post({type:'token-result',requestId,error:error?.code||error?.message||String(error)})}
-    return;
-  }
-  if(type!=='export-project'||!projectId)return;
+  if(!requestId||type!=='export-project'||!projectId)return;
   try{
     post({type:'export-result',requestId,data:await exportProject(projectId)});
   }catch(error){
