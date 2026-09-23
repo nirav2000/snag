@@ -1,4 +1,4 @@
-const WORKER_BUILD='2026.09.21.1320';
+const WORKER_BUILD='2026.09.23.0740';
 // Cloudflare Worker for Snag Recorder media.
 // Bind the R2 bucket "snag-media" as SNAG_MEDIA.
 // Add these Worker secrets/variables:
