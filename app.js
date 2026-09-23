@@ -700,7 +700,8 @@ async function protectAccessWithEmail(){
     const credential=authMod.EmailAuthProvider.credential(email,password);
     await authMod.linkWithCredential(auth.currentUser,credential);
     await registerUserProject(selectedProjectId,currentMember?.role||'owner',snagUserId());
-    toast('Access protected. You can now sign in on another device.');renderSettings();
+    try{await authMod.sendEmailVerification(auth.currentUser)}catch(e){console.warn('Verification email could not be sent',e)}
+    toast('Access protected. A verification email has been sent.');renderSettings();
   }catch(e){console.error(e);toast(e?.code==='auth/email-already-in-use'?'That email already has a protected Snag account. Use Sign in instead.':firebaseErrorMessage(e))}
 }
 async function signInProtectedAccess(){
