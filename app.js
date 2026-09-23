@@ -599,11 +599,13 @@ async function initFirebase(cfg){
     if(launchProjectId&&launchInviteId){
       await withTimeout(joinInvitedProject(launchProjectId,launchInviteId),9000,'Project invite');
       diagStep('Firestore project','ok','Invite accepted');
-      cloudStatus={state:'connected',message:`Shared cloud connected · invite access · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};
+      const pending=await migrateLocalProjectToCloud();
+      cloudStatus={state:'connected',message:`Shared cloud connected · invite access · ${pending.written}/${pending.total} local changes synced · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};
     }else if(legacyMigration?.role==='member'){
       await loadCurrentMember();
       diagStep('Firestore project','ok','Existing member access restored');
-      cloudStatus={state:'connected',message:`Shared cloud connected · restored member access · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};
+      const pending=await migrateLocalProjectToCloud();
+      cloudStatus={state:'connected',message:`Shared cloud connected · restored member access · ${pending.written}/${pending.total} local changes synced · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};
     }else{
       await withTimeout(ensureProjectRemote(),9000,'Project setup');
       diagStep('Firestore project','ok','Owner project available');
