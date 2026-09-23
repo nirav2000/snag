@@ -2,7 +2,7 @@ const WORKER_BUILD='2026.09.21.1320';
 // Cloudflare Worker for Snag Recorder media.
 // Bind the R2 bucket "snag-media" as SNAG_MEDIA.
 // Add these Worker secrets/variables:
-//   FIREBASE_PROJECT_ID=kk-syllabus
+//   Firebase token verification now uses the dedicated snag-509418 web API key.
 //   ALLOWED_ORIGIN=https://nirav2000.github.io
 // No R2 access keys are required when using an R2 binding.
 const cors=(origin,allowed)=>({
