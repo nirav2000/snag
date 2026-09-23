@@ -616,6 +616,8 @@ async function initFirebase(cfg){
       catch(e){diagStep('Snag sync','error',firebaseErrorMessage(e));console.warn('Local migration incomplete',e)}
       cloudStatus={state:'connected',message:`Shared cloud connected · owner access · ${migration.written}/${migration.total} local snags synced · R2 ${window.SNAG_R2_API?'configured':'not configured'}`};
     }
+    await loadCurrentMember();
+    saveMigration(selectedProjectId,{status:'complete',role:currentMember?.role==='owner'?'owner':'member',primaryUid:auth.currentUser.uid});
     diagStep('Live listener','running','Starting realtime updates');
     try{await withTimeout(subscribeFirebase(),9000,'Live listener');diagStep('Live listener','ok','Listening')}catch(e){diagStep('Live listener','error',firebaseErrorMessage(e));console.warn(e)}
     clearTimeout(watchdog);if(run!==firebaseRun)return;
