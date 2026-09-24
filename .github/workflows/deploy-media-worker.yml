@@ -2,6 +2,11 @@ name: Deploy Snag media worker
 
 on:
   workflow_dispatch:
+    inputs:
+      app_monitor_setup_request:
+        description: "Optional App Monitor first-use setup request ID to approve"
+        required: false
+        type: string
   push:
     branches: ["main"]
     paths:
@@ -30,6 +35,15 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+      - name: Approve App Monitor first-use setup
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.app_monitor_setup_request != '' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          REQUEST_ID: ${{ inputs.app_monitor_setup_request }}
+        run: |
+          case "$REQUEST_ID" in (*[!A-Za-z0-9_-]*|'') echo "::error::Invalid setup request ID"; exit 1;; esac
+          printf '{"approved":true,"approvedAt":"%s","approvedBy":"%s"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_ACTOR" | npx wrangler r2 object put "snag-media/_app-monitor/v2/security/bootstrap-approvals/$REQUEST_ID.json" --pipe --remote --content-type application/json --force
       - name: Deploy worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
