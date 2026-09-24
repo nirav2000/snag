@@ -1,5 +1,5 @@
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
-const WORKER_BUILD='2026.09.24.1405';
+const WORKER_BUILD='2026.09.24.1435';
 const APP_MONITOR_RP_ID='nirav2000.github.io',APP_MONITOR_ORIGIN='https://nirav2000.github.io',APP_MONITOR_SECURITY='_app-monitor/v2/security/',APP_MONITOR_SESSION_MS=12*60*60*1000,APP_MONITOR_CHALLENGE_MS=5*60*1000,APP_MONITOR_BOOTSTRAP_MS=30*60*1000;
 // Cloudflare Worker for Snag Recorder media + lightweight Firebase usage telemetry.
 // Media uses the R2 bucket "snag-media" as SNAG_MEDIA.
@@ -275,13 +275,13 @@ async function appMonitorRoute(request,env,headers,url){
       const verification=await verifyRegistrationResponse({response:body.response,expectedChallenge:challenge.challenge,expectedOrigin:APP_MONITOR_ORIGIN,expectedRPID:APP_MONITOR_RP_ID,requireUserVerification:true,supportedAlgorithmIDs:[-7,-257]});
       if(!verification.verified||!verification.registrationInfo)return new Response('Passkey not verified',{status:400,headers});
       const info=verification.registrationInfo,credential=info.credential,record={version:2,id:credential.id,publicKey:b64uBytes(credential.publicKey),counter:credential.counter,transports:credential.transports||body.response?.response?.transports||[],deviceType:info.credentialDeviceType,backedUp:info.credentialBackedUp,label:String(body.label||'Passkey').slice(0,120),createdAt:new Date().toISOString(),lastUsedAt:null};
-      await putJSON(env,APP_MONITOR_SECURITY+'passkeys/'+await sha256(record.id)+'.json',record);return Response.json({ok:true,passkey:{id:record.id,label:record.label,deviceType:record.deviceType,backedUp:record.backedUp,createdAt:record.createdAt}},{headers});
+      await putJSON(env,APP_MONITOR_SECURITY+'passkeys/'+await sha256(record.id)+'.json',record);return Response.json({ok:true,passkey:{label:record.label,deviceType:record.deviceType,backedUp:record.backedUp,createdAt:record.createdAt}},{headers});
     }catch(e){return new Response('Passkey registration failed: '+String(e?.message||e),{status:400,headers})}
   }
   if(url.pathname==='/app-monitor/security/info'&&request.method==='GET'){
     const session=await appMonitorSession(request,env);if(!session.ok)return new Response('Unauthorized',{status:401,headers});
     const passkeysRaw=await appMonitorPasskeys(env),passkeys=[];
-    for(const p of passkeysRaw){const handle=await sha256(p.id),id=String(p.id||'');passkeys.push({handle,idMasked:id.length>2?id[0]+'*'.repeat(Math.min(18,id.length-2))+id[id.length-1]:'**',label:p.label||'Passkey',deviceType:p.deviceType,backedUp:p.backedUp,createdAt:p.createdAt,lastUsedAt:p.lastUsedAt})}
+    for(const p of passkeysRaw){const handle=await sha256(p.id);passkeys.push({handle,label:p.label||'Passkey',deviceType:p.deviceType,backedUp:p.backedUp,createdAt:p.createdAt,lastUsedAt:p.lastUsedAt})}
     const sessions=(await listJSON(env,APP_MONITOR_SECURITY+'sessions/')).filter(s=>Date.parse(s.expiresAt)>Date.now()).map(s=>({hash:s.hash,label:s.label,method:s.method,credentialHash:s.credentialHash||'',createdAt:s.createdAt,lastSeenAt:s.lastSeenAt,expiresAt:s.expiresAt,current:s.hash===session.hash,createdContext:s.createdContext||null,lastContext:s.lastContext||null}));
     const recovery=await getJSON(env,APP_MONITOR_SECURITY+'recovery.json');return Response.json({ok:true,passkeys,sessions,recovery:{configured:!!recovery,needsRotation:!!recovery?.migratedFromLegacy,updatedAt:recovery?.updatedAt||recovery?.createdAt||null}},{headers});
   }
@@ -290,6 +290,24 @@ async function appMonitorRoute(request,env,headers,url){
     let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
     const token=String(body.token||'');if(token.length<32||token.length>220)return new Response('Recovery token must be 32-220 characters',{status:400,headers});
     await putJSON(env,APP_MONITOR_SECURITY+'recovery.json',{version:2,hash:await sha256(token),updatedAt:new Date().toISOString(),migratedFromLegacy:false});return Response.json({ok:true},{headers});
+  }
+  if(url.pathname==='/app-monitor/security/rename-passkey'&&request.method==='POST'){
+    const session=await appMonitorSession(request,env);if(!session.ok)return new Response('Unauthorized',{status:401,headers});
+    let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
+    const handle=String(body.handle||''),label=String(body.label||'').trim().slice(0,120);
+    if(!/^[a-f0-9]{64}$/.test(handle))return new Response('Invalid passkey',{status:400,headers});
+    if(!label)return new Response('Passkey name is required',{status:400,headers});
+    const key=APP_MONITOR_SECURITY+'passkeys/'+handle+'.json',passkey=await getJSON(env,key);
+    if(!passkey)return new Response('Passkey not found',{status:404,headers});
+    const oldLabel=passkey.label||'Passkey';passkey.label=label;passkey.renamedAt=new Date().toISOString();await putJSON(env,key,passkey);
+    const sessions=await listJSON(env,APP_MONITOR_SECURITY+'sessions/');let sessionsUpdated=0;
+    for(const s of sessions){
+      if(!s.hash)continue;
+      if(s.credentialHash===handle||(!s.credentialHash&&s.method==='passkey'&&s.label===oldLabel)){
+        s.label=label;await putJSON(env,APP_MONITOR_SECURITY+'sessions/'+s.hash+'.json',s);sessionsUpdated++;
+      }
+    }
+    return Response.json({ok:true,label,sessionsUpdated},{headers});
   }
   if(url.pathname==='/app-monitor/security/revoke-passkey'&&request.method==='POST'){
     const session=await appMonitorSession(request,env);if(!session.ok)return new Response('Unauthorized',{status:401,headers});
