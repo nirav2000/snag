@@ -1,5 +1,5 @@
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
-const WORKER_BUILD='2026.09.24.1335';
+const WORKER_BUILD='2026.09.24.1405';
 const APP_MONITOR_RP_ID='nirav2000.github.io',APP_MONITOR_ORIGIN='https://nirav2000.github.io',APP_MONITOR_SECURITY='_app-monitor/v2/security/',APP_MONITOR_SESSION_MS=12*60*60*1000,APP_MONITOR_CHALLENGE_MS=5*60*1000,APP_MONITOR_BOOTSTRAP_MS=30*60*1000;
 // Cloudflare Worker for Snag Recorder media + lightweight Firebase usage telemetry.
 // Media uses the R2 bucket "snag-media" as SNAG_MEDIA.
@@ -65,7 +65,11 @@ async function appMonitorSession(request,env){
   const token=request.headers.get('X-App-Monitor-Session')||'';if(token.length<32)return {ok:false};
   const hash=await sha256(token),key=APP_MONITOR_SECURITY+'sessions/'+hash+'.json',record=await getJSON(env,key);if(!record)return {ok:false};
   if(Date.parse(record.expiresAt)<=Date.now()){await env.SNAG_MEDIA.delete(key);return {ok:false,expired:true}}
-  const ctx=adminClientContext(request);if(!record.createdContext)record.createdContext=ctx;record.lastContext=ctx;if(Date.now()-Date.parse(record.lastSeenAt||record.createdAt)>15*60*1000){record.lastSeenAt=new Date().toISOString();await putJSON(env,key,record)}
+  const ctx=adminClientContext(request),hadCreated=!!record.createdContext,previous=JSON.stringify(record.lastContext||null);
+  if(!record.createdContext)record.createdContext=ctx;record.lastContext=ctx;
+  const stale=Date.now()-Date.parse(record.lastSeenAt||record.createdAt)>15*60*1000,contextChanged=!hadCreated||previous!==JSON.stringify(ctx);
+  if(stale)record.lastSeenAt=new Date().toISOString();
+  if(stale||contextChanged)await putJSON(env,key,record);
   return {ok:true,hash,record};
 }
 async function appMonitorAdmin(request,env){const s=await appMonitorSession(request,env);if(s.ok)return true;return (await appMonitorCredential(request,env)).ok}
