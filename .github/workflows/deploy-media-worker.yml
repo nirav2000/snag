@@ -30,6 +30,12 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+      - name: Bootstrap private App Monitor recovery hash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          printf '%s' '{"version":2,"hash":"51cce3c5c9ce144016d801ae965b77d3adf99d8e39460b60e391dc67059574db","createdAt":"2026-09-24T09:20:00Z","migratedFromLegacy":true}' | npx wrangler r2 object put "snag-media/_app-monitor/v2/security/recovery.json" --pipe --remote --content-type application/json --force
       - name: Deploy worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
