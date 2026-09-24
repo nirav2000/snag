@@ -1,0 +1,41 @@
+name: Deploy updated App Monitor worker
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/deploy-updated-app-monitor.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Apps platform
+        uses: actions/checkout@v4
+        with:
+          repository: nirav2000/Apps
+          path: apps-monitor
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps-monitor/package.json
+      - name: Install dependencies
+        working-directory: apps-monitor
+        run: npm install --no-audit --no-fund
+      - name: Deploy App Monitor worker
+        working-directory: apps-monitor
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy -c wrangler-app-monitor.jsonc
+      - name: Verify service
+        run: |
+          curl --fail --silent --show-error 'https://apps-monitor-api.nirav2000-github.workers.dev/health'
+          echo
+          curl --fail --silent --show-error -H 'Origin: https://nirav2000.github.io' 'https://apps-monitor-api.nirav2000-github.workers.dev/app-monitor/security/status'
+          echo
