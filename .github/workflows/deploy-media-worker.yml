@@ -58,4 +58,4 @@ jobs:
             -H 'Origin: https://nirav2000.github.io' \
             -H 'Content-Type: application/json' \
             --data "{\"secret\":\"$SETUP_SECRET\"}" \
-            'https://snag-media-api.nirav2000-github.workers.dev/app-monitor/bootstrap/request'
+            'https://snag-media-api.nirav2000-github.workers.dev/app-monitor/bootstrap/request?probe=1'
