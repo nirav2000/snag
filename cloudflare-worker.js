@@ -1,4 +1,4 @@
-const WORKER_BUILD='2026.09.23.2230';
+const WORKER_BUILD='2026.09.24.0900';
 const APP_MONITOR_ADMIN_SHA256='51cce3c5c9ce144016d801ae965b77d3adf99d8e39460b60e391dc67059574db';
 // Cloudflare Worker for Snag Recorder media + lightweight Firebase usage telemetry.
 // Media uses the R2 bucket "snag-media" as SNAG_MEDIA.
@@ -105,6 +105,25 @@ async function appMonitorRoute(request,env,headers,url){
     const key='_app-monitor/v1/'+body.date+'/'+cleanKey(body.app)+'/'+body.sessionId+'.json';
     await env.SNAG_MEDIA.put(key,JSON.stringify(snapshot),{httpMetadata:{contentType:'application/json'}});
     return Response.json({ok:true,observedAt},{headers});
+  }
+  if(url.pathname==='/app-monitor/aliases'&&request.method==='GET'){
+    if(!(await appMonitorAdmin(request)))return new Response('Unauthorized',{status:401,headers});
+    const prefix='_app-monitor/v1/_aliases/';let cursor,objects=[],truncated=true;
+    while(truncated&&objects.length<5000){const page=await env.SNAG_MEDIA.list({prefix,cursor,limit:1000});objects.push(...page.objects);truncated=page.truncated;cursor=page.cursor}
+    const aliases=[];for(const item of objects){const obj=await env.SNAG_MEDIA.get(item.key);if(!obj)continue;try{aliases.push(JSON.parse(await obj.text()))}catch{}}
+    return Response.json({version:1,aliases,generatedAt:new Date().toISOString()},{headers});
+  }
+  if(url.pathname==='/app-monitor/alias'&&request.method==='POST'){
+    if(!(await appMonitorAdmin(request)))return new Response('Unauthorized',{status:401,headers});
+    const len=Number(request.headers.get('Content-Length')||0);if(len>16*1024)return new Response('Payload too large',{status:413,headers});
+    let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
+    const type=String(body.type||''),id=String(body.id||'').trim(),person=String(body.person||'').trim().slice(0,120);
+    if(!['device','auth','session'].includes(type)||!id||id.length>220)return new Response('Invalid alias',{status:400,headers});
+    const key='_app-monitor/v1/_aliases/'+type+'/'+await sha256(id)+'.json';
+    if(!person){await env.SNAG_MEDIA.delete(key);return Response.json({ok:true,removed:true,type,id},{headers})}
+    const alias={version:1,type,id,person,updatedAt:new Date().toISOString()};
+    await env.SNAG_MEDIA.put(key,JSON.stringify(alias),{httpMetadata:{contentType:'application/json'}});
+    return Response.json({ok:true,alias},{headers});
   }
   if(url.pathname==='/app-monitor/day'&&request.method==='GET'){
     if(!(await appMonitorAdmin(request)))return new Response('Unauthorized',{status:401,headers});
