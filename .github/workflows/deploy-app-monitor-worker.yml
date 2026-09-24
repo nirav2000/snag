@@ -103,3 +103,30 @@ jobs:
           echo
           curl --fail --silent --show-error -H 'Origin: https://nirav2000.github.io' "$APP_MONITOR_URL/app-monitor/security/status"
           echo
+
+      - name: Verify migration is complete
+        env:
+          APP_MONITOR_URL: https://apps-monitor-api.nirav2000-github.workers.dev
+        run: |
+          MIGRATION_TOKEN="$(cat /tmp/app-monitor-migration-token)"
+          STATUS="$(curl --fail-with-body --silent --show-error -H "X-Migration-Token: $MIGRATION_TOKEN" "$APP_MONITOR_URL/migration/status")"
+          echo "$STATUS"
+          node -e 'const x=JSON.parse(process.argv[1]); if(!x.ok || x.dedicated < x.legacy || x.passkeyCount < 1 || !x.recoveryConfigured) process.exit(1)' "$STATUS"
+
+      - name: Remove migrated App Monitor objects from Snag R2
+        working-directory: apps-monitor
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          APP_MONITOR_URL: https://apps-monitor-api.nirav2000-github.workers.dev
+        run: |
+          MIGRATION_TOKEN="$(cat /tmp/app-monitor-migration-token)"
+          curl --fail-with-body --silent --show-error -H "X-Migration-Token: $MIGRATION_TOKEN" "$APP_MONITOR_URL/migration/keys" > /tmp/app-monitor-keys.json
+          node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync("/tmp/app-monitor-keys.json","utf8")); for(const k of x.keys||[]) console.log(k)' > /tmp/app-monitor-keys.txt
+          while IFS= read -r key; do
+            [ -z "$key" ] && continue
+            npx wrangler r2 object delete "snag-media/$key" --remote
+          done < /tmp/app-monitor-keys.txt
+          STATUS="$(curl --fail-with-body --silent --show-error -H "X-Migration-Token: $MIGRATION_TOKEN" "$APP_MONITOR_URL/migration/status")"
+          echo "$STATUS"
+          node -e 'const x=JSON.parse(process.argv[1]); if(x.legacy !== 0 || x.passkeyCount < 1 || !x.recoveryConfigured) process.exit(1)' "$STATUS"
