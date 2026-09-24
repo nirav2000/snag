@@ -1,5 +1,5 @@
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
-const WORKER_BUILD='2026.09.24.1155';
+const WORKER_BUILD='2026.09.24.1210';
 const APP_MONITOR_RP_ID='nirav2000.github.io',APP_MONITOR_ORIGIN='https://nirav2000.github.io',APP_MONITOR_SECURITY='_app-monitor/v2/security/',APP_MONITOR_SESSION_MS=12*60*60*1000,APP_MONITOR_CHALLENGE_MS=5*60*1000,APP_MONITOR_BOOTSTRAP_MS=30*60*1000;
 // Cloudflare Worker for Snag Recorder media + lightweight Firebase usage telemetry.
 // Media uses the R2 bucket "snag-media" as SNAG_MEDIA.
@@ -8,7 +8,7 @@ const APP_MONITOR_RP_ID='nirav2000.github.io',APP_MONITOR_ORIGIN='https://nirav2
 const cors=(origin,allowed)=>({
   'Access-Control-Allow-Origin': origin===allowed?origin:allowed,
   'Access-Control-Allow-Methods':'PUT,POST,GET,OPTIONS',
-  'Access-Control-Allow-Headers':'Authorization,Content-Type,X-App-Monitor-Key,X-App-Monitor-Session',
+  'Access-Control-Allow-Headers':'Authorization,Content-Type,X-App-Monitor-Key,X-App-Monitor-Session,X-App-Monitor-Bootstrap',
   'Access-Control-Max-Age':'86400'
 });
 const allowedOrigin=(request,env)=>(request.headers.get('Origin')||'')===(env.ALLOWED_ORIGIN||'https://nirav2000.github.io');
@@ -52,6 +52,7 @@ async function appMonitorSession(request,env){
 }
 async function appMonitorAdmin(request,env){const s=await appMonitorSession(request,env);if(s.ok)return true;return (await appMonitorCredential(request,env)).ok}
 async function appMonitorPasskeys(env){return listJSON(env,APP_MONITOR_SECURITY+'passkeys/')}
+async function bootstrapProof(request,record){const secret=request.headers.get('X-App-Monitor-Bootstrap')||'';if(!record?.proofHash||secret.length<32)return false;return (await sha256(secret))===record.proofHash}
 async function saveChallenge(env,kind,challenge,sessionHash=''){const id=randomSecret(18),record={version:2,id,kind,challenge,sessionHash,createdAt:new Date().toISOString()};await putJSON(env,APP_MONITOR_SECURITY+'challenges/'+id+'.json',record);return id}
 async function takeChallenge(env,id,kind){const key=APP_MONITOR_SECURITY+'challenges/'+String(id||'')+'.json',x=await getJSON(env,key);if(!x||x.kind!==kind||Date.now()-Date.parse(x.createdAt)>APP_MONITOR_CHALLENGE_MS)return null;await env.SNAG_MEDIA.delete(key);return x}
 function mergeUsage(target,out){
@@ -140,9 +141,15 @@ async function appMonitorRoute(request,env,headers,url){
   }
   if(url.pathname==='/app-monitor/bootstrap/request'&&request.method==='POST'){
     const passkeys=await appMonitorPasskeys(env);if(passkeys.length)return new Response('Bootstrap disabled',{status:409,headers});
+    let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
+    const secret=String(body.secret||'');if(secret.length<32||secret.length>220)return new Response('Invalid setup proof',{status:400,headers});
     const currentKey=APP_MONITOR_SECURITY+'bootstrap-current.json',current=await getJSON(env,currentKey);
-    if(current&&!current.used&&Date.parse(current.expiresAt)>Date.now())return Response.json({ok:true,requestId:current.id,expiresAt:current.expiresAt,reused:true},{headers});
-    const id=randomSecret(18),now=Date.now(),record={version:1,id,createdAt:new Date(now).toISOString(),expiresAt:new Date(now+APP_MONITOR_BOOTSTRAP_MS).toISOString(),used:false};
+    if(current&&!current.used&&Date.parse(current.expiresAt)>Date.now()){
+      const approval=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-approvals/'+current.id+'.json');
+      if(approval)return new Response('An approved setup request is already in progress',{status:409,headers});
+      await env.SNAG_MEDIA.delete(APP_MONITOR_SECURITY+'bootstrap-approvals/'+current.id+'.json');
+    }
+    const id=randomSecret(18),now=Date.now(),record={version:2,id,proofHash:await sha256(secret),createdAt:new Date(now).toISOString(),expiresAt:new Date(now+APP_MONITOR_BOOTSTRAP_MS).toISOString(),used:false};
     await putJSON(env,currentKey,record);
     return Response.json({ok:true,requestId:id,expiresAt:record.expiresAt},{headers});
   }
@@ -151,6 +158,7 @@ async function appMonitorRoute(request,env,headers,url){
     const id=String(url.searchParams.get('requestId')||'');if(!/^[A-Za-z0-9_-]{12,80}$/.test(id))return new Response('Invalid request',{status:400,headers});
     const req=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-current.json');
     if(!req||req.id!==id||req.used||Date.parse(req.expiresAt)<=Date.now())return Response.json({ok:true,bootstrapNeeded:true,approved:false,expired:true},{headers});
+    if(!await bootstrapProof(request,req))return new Response('Invalid setup proof',{status:401,headers});
     const approval=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-approvals/'+id+'.json');
     return Response.json({ok:true,bootstrapNeeded:true,approved:!!approval,expiresAt:req.expiresAt,approvedAt:approval?.approvedAt||null},{headers});
   }
@@ -159,7 +167,7 @@ async function appMonitorRoute(request,env,headers,url){
     let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
     const id=String(body.requestId||'');if(!/^[A-Za-z0-9_-]{12,80}$/.test(id))return new Response('Invalid request',{status:400,headers});
     const req=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-current.json'),approval=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-approvals/'+id+'.json');
-    if(!req||req.id!==id||req.used||Date.parse(req.expiresAt)<=Date.now()||!approval)return new Response('Setup request not approved',{status:401,headers});
+    if(!req||req.id!==id||req.used||Date.parse(req.expiresAt)<=Date.now()||!approval||!await bootstrapProof(request,req))return new Response('Setup request not approved',{status:401,headers});
     const options=await generateRegistrationOptions({rpName:'Nirav App Monitor',rpID:APP_MONITOR_RP_ID,userName:'nirav',userDisplayName:'Nirav',userID:new TextEncoder().encode('app-monitor-admin'),attestationType:'none',supportedAlgorithmIDs:[-7,-257],authenticatorSelection:{residentKey:'required',userVerification:'required'}});
     const challengeId=await saveChallenge(env,'bootstrap-register',options.challenge,id);return Response.json({challengeId,options},{headers});
   }
@@ -169,7 +177,7 @@ async function appMonitorRoute(request,env,headers,url){
     const id=String(body.requestId||''),challenge=await takeChallenge(env,body.challengeId,'bootstrap-register');
     if(!challenge||challenge.sessionHash!==id)return new Response('Challenge expired',{status:401,headers});
     const req=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-current.json'),approval=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-approvals/'+id+'.json');
-    if(!req||req.id!==id||req.used||Date.parse(req.expiresAt)<=Date.now()||!approval)return new Response('Setup request not approved',{status:401,headers});
+    if(!req||req.id!==id||req.used||Date.parse(req.expiresAt)<=Date.now()||!approval||!await bootstrapProof(request,req))return new Response('Setup request not approved',{status:401,headers});
     try{
       const verification=await verifyRegistrationResponse({response:body.response,expectedChallenge:challenge.challenge,expectedOrigin:APP_MONITOR_ORIGIN,expectedRPID:APP_MONITOR_RP_ID,requireUserVerification:true,supportedAlgorithmIDs:[-7,-257]});
       if(!verification.verified||!verification.registrationInfo)return new Response('Passkey not verified',{status:400,headers});
