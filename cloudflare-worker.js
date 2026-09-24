@@ -1,6 +1,5 @@
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
-const WORKER_BUILD='2026.09.24.1035';
-const LEGACY_APP_MONITOR_ADMIN_SHA256='51cce3c5c9ce144016d801ae965b77d3adf99d8e39460b60e391dc67059574db';
+const WORKER_BUILD='2026.09.24.1050';
 const APP_MONITOR_RP_ID='nirav2000.github.io',APP_MONITOR_ORIGIN='https://nirav2000.github.io',APP_MONITOR_SECURITY='_app-monitor/v2/security/',APP_MONITOR_SESSION_MS=12*60*60*1000,APP_MONITOR_CHALLENGE_MS=5*60*1000;
 // Cloudflare Worker for Snag Recorder media + lightweight Firebase usage telemetry.
 // Media uses the R2 bucket "snag-media" as SNAG_MEDIA.
@@ -37,10 +36,6 @@ async function appMonitorCredential(request,env){
   const key=request.headers.get('X-App-Monitor-Key')||'';if(key.length<32)return {ok:false};
   const hash=await sha256(key),recovery=await getJSON(env,APP_MONITOR_SECURITY+'recovery.json');
   if(recovery){return {ok:recovery.hash===hash,hash,master:recovery.hash===hash,recovery:true}}
-  if(hash===LEGACY_APP_MONITOR_ADMIN_SHA256){
-    await putJSON(env,APP_MONITOR_SECURITY+'recovery.json',{version:2,hash,createdAt:new Date().toISOString(),migratedFromLegacy:true});
-    return {ok:true,hash,master:true,recovery:true,migrated:true};
-  }
   const obj=await env.SNAG_MEDIA.get('_app-monitor/v1/_tokens/'+hash+'.json');
   return {ok:!!obj,hash,master:false,legacyDevice:!!obj};
 }
