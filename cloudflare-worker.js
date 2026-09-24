@@ -1,5 +1,5 @@
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
-const WORKER_BUILD='2026.09.24.1135';
+const WORKER_BUILD='2026.09.24.1155';
 const APP_MONITOR_RP_ID='nirav2000.github.io',APP_MONITOR_ORIGIN='https://nirav2000.github.io',APP_MONITOR_SECURITY='_app-monitor/v2/security/',APP_MONITOR_SESSION_MS=12*60*60*1000,APP_MONITOR_CHALLENGE_MS=5*60*1000,APP_MONITOR_BOOTSTRAP_MS=30*60*1000;
 // Cloudflare Worker for Snag Recorder media + lightweight Firebase usage telemetry.
 // Media uses the R2 bucket "snag-media" as SNAG_MEDIA.
@@ -245,6 +245,12 @@ async function appMonitorRoute(request,env,headers,url){
     let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
     const id=String(body.id||'');if(!id)return new Response('Missing passkey',{status:400,headers});
     await env.SNAG_MEDIA.delete(APP_MONITOR_SECURITY+'passkeys/'+await sha256(id)+'.json');return Response.json({ok:true},{headers});
+  }
+  if(url.pathname==='/app-monitor/security/revoke-all-sessions'&&request.method==='POST'){
+    const session=await appMonitorSession(request,env);if(!session.ok)return new Response('Unauthorized',{status:401,headers});
+    const sessions=await listJSON(env,APP_MONITOR_SECURITY+'sessions/');let revoked=0;
+    for(const s of sessions){if(s.hash&&/^[a-f0-9]{64}$/.test(s.hash)){await env.SNAG_MEDIA.delete(APP_MONITOR_SECURITY+'sessions/'+s.hash+'.json');revoked++}}
+    return Response.json({ok:true,revoked},{headers});
   }
   if(url.pathname==='/app-monitor/security/revoke-session'&&request.method==='POST'){
     const session=await appMonitorSession(request,env);if(!session.ok)return new Response('Unauthorized',{status:401,headers});
