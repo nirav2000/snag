@@ -630,6 +630,7 @@ async function initFirebase(cfg){
     try{db=fsMod.initializeFirestore(app,{experimentalForceLongPolling:true,useFetchStreams:false})}catch(e){db=fsMod.getFirestore(app)}auth=authMod.getAuth(app);firebase={appMod,fsMod,authMod,app,db,auth};diagStep('Firestore transport','ok','Forced long polling');
     diagStep('Authentication','running','Restoring this device identity');
     try{await withTimeout(auth.authStateReady(),7000,'Firebase auth state')}catch(e){console.warn(e)}
+    authMod.onAuthStateChanged(auth,user=>window.AppsAuth?.setAppIdentity(user,{app:'Snag'}));
     if(!auth.currentUser)await withTimeout(authMod.signInAnonymously(auth),10000,'Anonymous sign-in');
      window.AppMonitor?.identify?.({uid:auth.currentUser.uid,username:profile.name,provider:auth.currentUser.providerData?.[0]?.providerId||(auth.currentUser.isAnonymous?'anonymous':'firebase'),isAnonymous:auth.currentUser.isAnonymous});
     if(run!==firebaseRun)return;
