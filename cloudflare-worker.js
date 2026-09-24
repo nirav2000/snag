@@ -1,5 +1,5 @@
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
-const WORKER_BUILD='2026.09.24.1245';
+const WORKER_BUILD='2026.09.24.1300';
 const APP_MONITOR_RP_ID='nirav2000.github.io',APP_MONITOR_ORIGIN='https://nirav2000.github.io',APP_MONITOR_SECURITY='_app-monitor/v2/security/',APP_MONITOR_SESSION_MS=12*60*60*1000,APP_MONITOR_CHALLENGE_MS=5*60*1000,APP_MONITOR_BOOTSTRAP_MS=30*60*1000;
 // Cloudflare Worker for Snag Recorder media + lightweight Firebase usage telemetry.
 // Media uses the R2 bucket "snag-media" as SNAG_MEDIA.
@@ -142,11 +142,18 @@ async function appMonitorRoute(request,env,headers,url){
   if(url.pathname==='/app-monitor/bootstrap/request'&&request.method==='POST'){
     let stage='start';
     try{
-      stage='passkey-check';
-      const passkeys=await appMonitorPasskeys(env);if(passkeys.length)return new Response('Bootstrap disabled',{status:409,headers});
       stage='parse-request';
       let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
       const secret=String(body.secret||'');if(secret.length<32||secret.length>220)return new Response('Invalid setup proof',{status:400,headers});
+      if(url.searchParams.get('probe')==='1'){
+        stage='probe';
+        const id=randomSecret(12),key=APP_MONITOR_SECURITY+'probes/'+id+'.json';
+        await putJSON(env,key,{version:1,proofHash:await sha256(secret),createdAt:new Date().toISOString()});
+        await env.SNAG_MEDIA.delete(key);
+        return Response.json({ok:true,probe:true},{headers});
+      }
+      stage='passkey-check';
+      const passkeys=await appMonitorPasskeys(env);if(passkeys.length)return new Response('Bootstrap disabled',{status:409,headers});
       stage='read-current';
       const currentKey=APP_MONITOR_SECURITY+'bootstrap-current.json',current=await getJSON(env,currentKey);
       if(current&&!current.used&&Date.parse(current.expiresAt)>Date.now()){
@@ -162,7 +169,8 @@ async function appMonitorRoute(request,env,headers,url){
       await putJSON(env,currentKey,record);
       return Response.json({ok:true,requestId:id,expiresAt:record.expiresAt},{headers});
     }catch(e){
-      return Response.json({ok:false,error:'bootstrap-request-failed',stage,message:String(e?.message||e||'unknown').slice(0,180)},{status:500,headers});
+      console.error('App Monitor bootstrap request failed',stage,e);
+      return Response.json({ok:false,error:'bootstrap-request-failed'},{status:500,headers});
     }
   }
   if(url.pathname==='/app-monitor/bootstrap/status'&&request.method==='GET'){
