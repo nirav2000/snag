@@ -229,7 +229,7 @@ async function appMonitorRoute(request,env,headers,url){
       await env.SNAG_MEDIA.delete(APP_MONITOR_SECURITY+'bootstrap-approvals/'+id+'.json');
       await env.SNAG_MEDIA.delete(APP_MONITOR_SECURITY+'recovery.json');
       const session=await issueAppMonitorSession(request,env,'passkey',record.label||'First passkey',await sha256(record.id));
-      return Response.json({ok:true,...session,passkey:{id:record.id,label:record.label,deviceType:record.deviceType,backedUp:record.backedUp,createdAt:record.createdAt},recoveryInvalidated:true},{headers});
+      return Response.json({ok:true,...session,passkey:{label:record.label,deviceType:record.deviceType,backedUp:record.backedUp,createdAt:record.createdAt},recoveryInvalidated:true},{headers});
     }catch(e){return new Response('Passkey registration failed: '+String(e?.message||e),{status:400,headers})}
   }
   if(url.pathname==='/app-monitor/auth/recovery'&&request.method==='POST'){
