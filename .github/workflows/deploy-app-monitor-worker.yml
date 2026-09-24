@@ -63,17 +63,34 @@ jobs:
           printf '%s' "$MIGRATION_TOKEN" > /tmp/app-monitor-migration-token
           printf '%s' "$MIGRATION_TOKEN" | npx wrangler secret put MIGRATION_TOKEN -c wrangler-app-monitor.jsonc
 
+      - name: Wait for dedicated Worker propagation
+        env:
+          APP_MONITOR_URL: https://apps-monitor-api.nirav2000-github.workers.dev
+        run: |
+          for i in $(seq 1 12); do
+            if curl --fail --silent --show-error "$APP_MONITOR_URL/health" >/tmp/app-monitor-health; then
+              cat /tmp/app-monitor-health
+              echo
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Dedicated App Monitor Worker did not become reachable"
+          exit 1
+
       - name: Copy App Monitor data from Snag R2
         env:
           APP_MONITOR_URL: https://apps-monitor-api.nirav2000-github.workers.dev
         run: |
           MIGRATION_TOKEN="$(cat /tmp/app-monitor-migration-token)"
           curl --fail-with-body --silent --show-error \
+            --retry 5 --retry-delay 3 --retry-all-errors \
             -X POST \
             -H "X-Migration-Token: $MIGRATION_TOKEN" \
             "$APP_MONITOR_URL/migration/copy"
           echo
           curl --fail-with-body --silent --show-error \
+            --retry 5 --retry-delay 3 --retry-all-errors \
             -H "X-Migration-Token: $MIGRATION_TOKEN" \
             "$APP_MONITOR_URL/migration/status"
           echo
