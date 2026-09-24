@@ -168,8 +168,8 @@ async function appMonitorRoute(request,env,headers,url){
     let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
     const id=String(body.requestId||''),challenge=await takeChallenge(env,body.challengeId,'bootstrap-register');
     if(!challenge||challenge.sessionHash!==id)return new Response('Challenge expired',{status:401,headers});
-    const req=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-requests/'+id+'.json'),approval=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-approvals/'+id+'.json');
-    if(!req||req.used||Date.parse(req.expiresAt)<=Date.now()||!approval)return new Response('Setup request not approved',{status:401,headers});
+    const req=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-current.json'),approval=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-approvals/'+id+'.json');
+    if(!req||req.id!==id||req.used||Date.parse(req.expiresAt)<=Date.now()||!approval)return new Response('Setup request not approved',{status:401,headers});
     try{
       const verification=await verifyRegistrationResponse({response:body.response,expectedChallenge:challenge.challenge,expectedOrigin:APP_MONITOR_ORIGIN,expectedRPID:APP_MONITOR_RP_ID,requireUserVerification:true,supportedAlgorithmIDs:[-7,-257]});
       if(!verification.verified||!verification.registrationInfo)return new Response('Passkey not verified',{status:400,headers});
