@@ -1,5 +1,5 @@
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from '@simplewebauthn/server';
-const WORKER_BUILD='2026.09.24.1210';
+const WORKER_BUILD='2026.09.24.1245';
 const APP_MONITOR_RP_ID='nirav2000.github.io',APP_MONITOR_ORIGIN='https://nirav2000.github.io',APP_MONITOR_SECURITY='_app-monitor/v2/security/',APP_MONITOR_SESSION_MS=12*60*60*1000,APP_MONITOR_CHALLENGE_MS=5*60*1000,APP_MONITOR_BOOTSTRAP_MS=30*60*1000;
 // Cloudflare Worker for Snag Recorder media + lightweight Firebase usage telemetry.
 // Media uses the R2 bucket "snag-media" as SNAG_MEDIA.
@@ -26,7 +26,7 @@ const validDevice=x=>/^[A-Za-z0-9._-]{8,100}$/.test(x||'');
 const validSession=x=>/^[A-Za-z0-9._-]{8,120}$/.test(x||'');
 const cleanKey=x=>String(x||'unknown').replace(/[^A-Za-z0-9._-]/g,'-').slice(0,80)||'unknown';
 async function sha256(value){const bytes=new TextEncoder().encode(String(value||'')),digest=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,'0')).join('')}
-const b64uBytes=bytes=>{let s='';for(const b of bytes instanceof Uint8Array?bytes:new Uint8Array(bytes))s+=String.fromCharCode(b);return btoa(s).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'')};
+const b64uBytes=bytes=>{let s='';for(const b of bytes instanceof Uint8Array?bytes:new Uint8Array(bytes))s+=String.fromCharCode(b);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')};
 const bytesB64u=s=>{const p=String(s||'').replace(/-/g,'+').replace(/_/g,'/'),raw=atob(p+'='.repeat((4-p.length%4)%4)),out=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)out[i]=raw.charCodeAt(i);return out};
 const randomSecret=(n=32)=>{const b=new Uint8Array(n);crypto.getRandomValues(b);return b64uBytes(b)};
 async function getJSON(env,key){const o=await env.SNAG_MEDIA.get(key);if(!o)return null;try{return JSON.parse(await o.text())}catch{return null}}
@@ -140,18 +140,30 @@ async function appMonitorRoute(request,env,headers,url){
     return Response.json({ok:true,passkeyCount:passkeys.length,bootstrapNeeded:passkeys.length===0,recoveryConfigured:!!recovery,recoveryNeedsRotation:!!recovery?.migratedFromLegacy,sessionHours:APP_MONITOR_SESSION_MS/3600000},{headers});
   }
   if(url.pathname==='/app-monitor/bootstrap/request'&&request.method==='POST'){
-    const passkeys=await appMonitorPasskeys(env);if(passkeys.length)return new Response('Bootstrap disabled',{status:409,headers});
-    let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
-    const secret=String(body.secret||'');if(secret.length<32||secret.length>220)return new Response('Invalid setup proof',{status:400,headers});
-    const currentKey=APP_MONITOR_SECURITY+'bootstrap-current.json',current=await getJSON(env,currentKey);
-    if(current&&!current.used&&Date.parse(current.expiresAt)>Date.now()){
-      const approval=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-approvals/'+current.id+'.json');
-      if(approval)return new Response('An approved setup request is already in progress',{status:409,headers});
-      await env.SNAG_MEDIA.delete(APP_MONITOR_SECURITY+'bootstrap-approvals/'+current.id+'.json');
+    let stage='start';
+    try{
+      stage='passkey-check';
+      const passkeys=await appMonitorPasskeys(env);if(passkeys.length)return new Response('Bootstrap disabled',{status:409,headers});
+      stage='parse-request';
+      let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
+      const secret=String(body.secret||'');if(secret.length<32||secret.length>220)return new Response('Invalid setup proof',{status:400,headers});
+      stage='read-current';
+      const currentKey=APP_MONITOR_SECURITY+'bootstrap-current.json',current=await getJSON(env,currentKey);
+      if(current&&!current.used&&Date.parse(current.expiresAt)>Date.now()){
+        stage='read-approval';
+        const approval=await getJSON(env,APP_MONITOR_SECURITY+'bootstrap-approvals/'+current.id+'.json');
+        if(approval)return new Response('An approved setup request is already in progress',{status:409,headers});
+        stage='clear-old-approval';
+        await env.SNAG_MEDIA.delete(APP_MONITOR_SECURITY+'bootstrap-approvals/'+current.id+'.json');
+      }
+      stage='create-record';
+      const id=randomSecret(18),now=Date.now(),record={version:2,id,proofHash:await sha256(secret),createdAt:new Date(now).toISOString(),expiresAt:new Date(now+APP_MONITOR_BOOTSTRAP_MS).toISOString(),used:false};
+      stage='write-record';
+      await putJSON(env,currentKey,record);
+      return Response.json({ok:true,requestId:id,expiresAt:record.expiresAt},{headers});
+    }catch(e){
+      return Response.json({ok:false,error:'bootstrap-request-failed',stage,message:String(e?.message||e||'unknown').slice(0,180)},{status:500,headers});
     }
-    const id=randomSecret(18),now=Date.now(),record={version:2,id,proofHash:await sha256(secret),createdAt:new Date(now).toISOString(),expiresAt:new Date(now+APP_MONITOR_BOOTSTRAP_MS).toISOString(),used:false};
-    await putJSON(env,currentKey,record);
-    return Response.json({ok:true,requestId:id,expiresAt:record.expiresAt},{headers});
   }
   if(url.pathname==='/app-monitor/bootstrap/status'&&request.method==='GET'){
     const passkeys=await appMonitorPasskeys(env);if(passkeys.length)return Response.json({ok:true,bootstrapNeeded:false,approved:false},{headers});
