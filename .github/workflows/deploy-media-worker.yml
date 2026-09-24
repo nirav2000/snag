@@ -54,7 +54,7 @@ jobs:
           curl --fail --silent --show-error -H 'Origin: https://nirav2000.github.io' 'https://snag-media-api.nirav2000-github.workers.dev/app-monitor/health'
           curl --fail --silent --show-error -H 'Origin: https://nirav2000.github.io' 'https://snag-media-api.nirav2000-github.workers.dev/app-monitor/security/status'
           SETUP_SECRET="$(openssl rand -hex 32)"
-          curl --fail --silent --show-error \
+          curl --fail-with-body --silent --show-error \
             -H 'Origin: https://nirav2000.github.io' \
             -H 'Content-Type: application/json' \
             --data "{\"secret\":\"$SETUP_SECRET\"}" \
