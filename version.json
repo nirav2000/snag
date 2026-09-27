@@ -1,9 +1,9 @@
 {
-  "build": "2026.09.27.1805",
-  "publishedAt": "2026-09-27T18:05:00+01:00",
+  "build": "2026.09.27.1843",
+  "publishedAt": "2026-09-27T18:43:00+01:00",
   "channel": "release",
   "stableRef": "stable",
-  "stableBuild": "2026.09.27.1805",
+  "stableBuild": "2026.09.27.1843",
   "features": [
     "shared-account-v1",
     "shared-privacy-v1",
@@ -21,6 +21,8 @@
     "shared-worker-deploy-bridge-v1",
     "ipad-visual-viewport-fix-v1",
     "home-nav-state-fix-v1",
-    "render-resilience-v1"
+    "render-resilience-v1",
+    "landing-responsive-media-v2",
+    "coral-theme-v2"
   ]
 }
