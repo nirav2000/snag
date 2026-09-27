@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Snag logo mark</title>
+  <desc id="desc">A rounded dark tile containing an open loop that closes through a coral connector.</desc>
+  <rect width="64" height="64" rx="18" fill="#0B1F33"/>
+  <path d="M19 18.5h20.5a9.5 9.5 0 0 1 0 19H25" fill="none" stroke="#F8F4EC" stroke-width="7" stroke-linecap="round"/>
+  <path d="M45 45.5H24.5a9.5 9.5 0 0 1 0-19H39" fill="none" stroke="#F8F4EC" stroke-width="7" stroke-linecap="round"/>
+  <path d="M24 26.5h16" stroke="#FF6B4A" stroke-width="7" stroke-linecap="round" transform="rotate(31 32 26.5)"/>
+</svg>
