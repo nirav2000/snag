@@ -41,7 +41,7 @@ async function loadProjectMembers(force=false){
   projectMemberCache={projectId:selectedProjectId,at:Date.now(),rows};return rows;
 }
 async function resolveAssigneeIdentity(label){
-  const target=String(label||'').trim().toLowerCase();if(!target||!firebase)return null;
+  const target=String(label||'').trim().toLowerCase();if(!target||!firebase||!isAdmin())return null;
   const rows=await loadProjectMembers();
   return rows.find(x=>[x.label,x.name,x.role].some(v=>String(v||'').trim().toLowerCase()===target))||null;
 }
@@ -469,6 +469,7 @@ async function shareProject(){
   await renderAccessLinks();$('shareDialog').showModal();
 }
 async function createShareLink(){
+  if(!await requireCommercialAccess('shareProject'))return;
   if(!firebase?.auth?.currentUser)return toast('Cloud sharing is not connected yet');
   const btn=$('createShareLinkButton');btn.disabled=true;btn.textContent='Creating…';
   try{
