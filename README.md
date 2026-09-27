@@ -41,3 +41,8 @@ The Firebase web config is not a private service-account credential. Access cont
 ## Release 2026.09.27.1645
 
 Commercial release foundation: shared account/privacy/billing modules, account IDs and project entitlements, active-invite revocation, contractor access model v2, private-v2 R2 media, export/delete controls, Stripe Checkout backend, first-visit sales page, and a main→stable promotion workflow. Version Lab keeps current Firebase config and now treats `main` as Latest.
+
+
+### Firebase deployment authority
+
+Firebase rules are deployed through the keyless GitHub OIDC workflow in `nirav2000/cloud-setup`, with `projects.yaml` pinning the exact Snag rules commit. The Snag repository intentionally does not carry a second secret-based rules deployment path.
