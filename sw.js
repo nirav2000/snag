@@ -1,6 +1,6 @@
-const CACHE='snag-static-v40';
-const BUILD='2026.09.27.1805';
-const STATIC=['./styles.css?v='+BUILD,'./notes.css?v='+BUILD,'./manifest.webmanifest','./icon.svg'];
+const CACHE='snag-static-v41';
+const BUILD='2026.09.27.1843';
+const STATIC=['./styles.css?v='+BUILD,'./notes.css?v='+BUILD,'./theme-coral.css?v='+BUILD,'./manifest.webmanifest','./icon.svg'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(STATIC)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
