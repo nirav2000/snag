@@ -1,10 +1,10 @@
-const APP_BUILD='2026.09.27.1715';
+const APP_BUILD='2026.09.27.1805';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1',userId:'snag-recorder-user-id-v1',migration:'snag-recorder-migration-v2'};
 const now=()=>new Date().toISOString();
 const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const escapeHtml=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-const fmt=iso=>new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short'}).format(new Date(iso));
+const fmt=iso=>{const d=new Date(iso);if(!iso||Number.isNaN(d.getTime()))return 'time unavailable';try{return new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short'}).format(d)}catch{return 'time unavailable'}};
 const statusLabel={'open':'Open','in-progress':'In progress','review':'Needs review','resolved':'Resolved'};
 const priorityRank={Urgent:0,High:1,Normal:2,Low:3};
 let firebase=null, unsubscribe=null, privateNotesUnsubscribe=null, seenUnsubscribe=null, currentMember=null, firebaseRun=0, cloudDiag=[], seenState={}, currentNav='home', pendingFiles=[], detailId=null, mediaRecorder=null, voiceChunks=[], cameraTestStream=null, cameraTestFacing='environment', cloudStatus={state:'starting',message:'Starting Firebase…'}, latestBuild=null, annotationState={source:null,mode:null,index:null,updateId:null,history:[],colour:'#ef4444',image:null}, legacyBridgeFrame=null, legacyBridgeReadyPromise=null;
@@ -156,13 +156,13 @@ async function subscribeSeenState(){
   seenUnsubscribe=fsMod.onSnapshot(q,snap=>{seenState={};snap.forEach(d=>{const x=d.data();if(x?.lastSeenAt)seenState[d.id]=x.lastSeenAt});render();},e=>console.warn('Seen-state listener',e));
 }
 function setNav(name){
+  if(name==='notes'){openMyNotes();name='home'}
+  else if(name==='more'){$('settingsDialog').showModal();name='home'}
   currentNav=name;
   document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav===name));
   $('homeSummary')?.classList.toggle('hidden',name!=='home');
   $('snagsView')?.classList.toggle('hidden',name!=='snags');
   $('roomsView')?.classList.toggle('hidden',name!=='rooms');
-  if(name==='notes'){openMyNotes();currentNav='home';document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav==='home'));}
-  if(name==='more'){$('settingsDialog').showModal();currentNav='home';document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav==='home'));}
   if(name==='rooms')renderRooms();
 }
 function renderRooms(){
@@ -184,7 +184,7 @@ function getFiltered(){
   snags.sort((a,b)=>view.sort==='priority'?priorityRank[a.priority]-priorityRank[b.priority]:view.sort==='newest'?new Date(b.createdAt)-new Date(a.createdAt):view.sort==='oldest'?new Date(a.createdAt)-new Date(b.createdAt):new Date(b.updatedAt)-new Date(a.updatedAt));
   return snags;
 }
-function render(){renderProject();renderStats();renderFilters();renderRecentActivity();renderHomeActiveSnags();renderList();renderRooms();renderProjects();renderSettings();renderQuickSuggestions();renderUnreadIndicators();renderCloudDiagnostics();queueMicrotask(()=>hydratePrivateMedia(document));}
+function render(){renderProject();renderStats();renderFilters();renderHomeActiveSnags();renderRecentActivity();renderList();renderRooms();renderProjects();renderSettings();renderQuickSuggestions();renderUnreadIndicators();renderCloudDiagnostics();queueMicrotask(()=>hydratePrivateMedia(document));}
 function renderProject(){const p=project();if(!p)return;const cover=$('projectCover');if(cover){cover.classList.toggle('hidden',!p.coverImage?.url);cover.innerHTML=p.coverImage?.url?`<img ${mediaAttr(p.coverImage)} alt="Project cover">`:'';const removeCover=$('removeProjectCoverButton');if(removeCover)removeCover.classList.toggle('hidden',!p.coverImage?.url);}$('projectName').textContent=p.name;$('projectAddress').textContent=p.address||'No address/context';$('projectTypeLabel').textContent=`${p.type.toUpperCase()} PROJECT`;$('profilePill').textContent=`${profile.role} · ${profile.name}`;const live=cloudStatus.state==='connected',pill=$('syncPill');pill.className=`sync-pill ${live?'connected':'local'}`;pill.innerHTML=`<span class="dot"></span><span>${live?'Live sync':cloudStatus.state==='error'?'Cloud error':'Connecting…'}</span>`;pill.title=cloudStatus.message||'';}
 function renderStats(){const s=visibleProjectSnags(),active=s.filter(x=>x.status!=='resolved'&&!x.archived),progress=s.filter(x=>x.status==='in-progress'&&!x.archived),review=s.filter(x=>x.status==='review'&&!x.archived),resolved=s.filter(x=>x.status==='resolved');$('statActive').textContent=active.length;$('statProgress').textContent=progress.length;$('statReview').textContent=review.length;$('statResolved').textContent=resolved.length;if($('heroUnresolved'))$('heroUnresolved').textContent=active.length;if($('heroRequireAction'))$('heroRequireAction').textContent=s.filter(x=>['open','review'].includes(x.status)&&!x.archived).length;if($('heroRecentlyUpdated')){const cutoff=Date.now()-86400000;$('heroRecentlyUpdated').textContent=s.filter(x=>new Date(x.updatedAt).getTime()>=cutoff).length;}document.querySelectorAll('.stat-card').forEach(x=>x.classList.toggle('active',x.dataset.statFilter===view.status));}
 function renderFilters(){let n=0;if(view.category!=='all')n++;if(view.priority!=='all')n++;if(view.archived)n++;$('filterCount').textContent=n?`(${n})`:'';$('categoryFilter').value=view.category;$('priorityFilter').value=view.priority;$('archiveFilter').checked=view.archived;$('sortSelect').value=view.sort;}
@@ -804,8 +804,15 @@ async function subscribeFirebase(){
   const {fsMod,db,auth}=firebase,col=fsMod.collection(db,'snag_projects',selectedProjectId,'snags'),restricted=currentMember?.role==='contractor'&&Number(project()?.accessModelVersion||0)>=2;
   const q=restricted?fsMod.query(col,fsMod.where('participantUids','array-contains',auth.currentUser.uid)):fsMod.query(col,fsMod.orderBy('updatedAt','desc'));
   unsubscribe=fsMod.onSnapshot(q,async snap=>{
-    const allowedIds=new Set();for(const d of snap.docs){allowedIds.add(d.id);const data={id:d.id,...d.data()};const us=await fsMod.getDocs(fsMod.collection(db,'snag_projects',selectedProjectId,'snags',d.id,'updates'));data.updates=us.docs.map(x=>({id:x.id,...x.data()}));const i=state.snags.findIndex(x=>x.id===data.id);if(i>=0)state.snags[i]=data;else state.snags.push(data);clearDirty(data.id);}
-    if(restricted)state.snags=state.snags.filter(x=>x.projectId!==selectedProjectId||allowedIds.has(x.id));saveState();render();if(detailId)openDetail(detailId);
+    const projectAtSnapshot=selectedProjectId,allowedIds=new Set();
+    for(const d of snap.docs){
+      allowedIds.add(d.id);const data={id:d.id,...d.data()},existing=state.snags.find(x=>x.id===data.id);
+      try{const us=await fsMod.getDocs(fsMod.collection(db,'snag_projects',projectAtSnapshot,'snags',d.id,'updates'));data.updates=us.docs.map(x=>({id:x.id,...x.data()}))}
+      catch(e){console.warn('Could not refresh snag updates',d.id,e);data.updates=existing?.updates||[]}
+      const i=state.snags.findIndex(x=>x.id===data.id);if(i>=0)state.snags[i]=data;else state.snags.push(data);clearDirty(data.id);
+    }
+    if(projectAtSnapshot!==selectedProjectId)return;
+    if(restricted)state.snags=state.snags.filter(x=>x.projectId!==projectAtSnapshot||allowedIds.has(x.id));saveState();render();if(detailId)openDetail(detailId);
   },e=>console.warn('Firestore listener',e));
 }
 
@@ -918,5 +925,13 @@ window.SnagReleaseBridge={
  refresh:()=>render(),toast,billingEndpoint:()=>window.SNAG_R2_API
 };
 window.dispatchEvent(new CustomEvent('snag-release:ready',{detail:{build:APP_BUILD}}));
+
+function syncVisualViewport(){
+  const vv=window.visualViewport,h=Math.max(320,Math.round(vv?.height||window.innerHeight||document.documentElement.clientHeight||0)),
+    bottom=Math.max(0,Math.round((window.innerHeight||h)-((vv?.height||h)+(vv?.offsetTop||0))));
+  document.documentElement.style.setProperty('--snag-visual-height',h+'px');
+  document.documentElement.style.setProperty('--snag-visual-bottom',bottom+'px');
+}
+syncVisualViewport();window.addEventListener('resize',syncVisualViewport);window.visualViewport?.addEventListener('resize',syncVisualViewport);window.visualViewport?.addEventListener('scroll',syncVisualViewport);document.addEventListener('focusout',()=>setTimeout(syncVisualViewport,120));
 
 bind();render();checkLatestBuild();const cfg=window.SNAG_FIREBASE_CONFIG||JSON.parse(localStorage.getItem(LS.firebase)||'null');if(cfg){localStorage.setItem(LS.firebase,JSON.stringify(cfg));initFirebase(cfg).then(render).catch(e=>{console.warn(e);if(cloudStatus.state!=='error')cloudStatus={state:'error',message:firebaseErrorMessage(e)};render();});}
