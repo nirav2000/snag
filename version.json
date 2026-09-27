@@ -10,6 +10,10 @@
     "shared-billing-v1",
     "access-model-v2",
     "private-media-v2",
-    "commercial-landing-v1"
+    "commercial-landing-v1",
+    "shared-account-v2",
+    "account-wide-pro-v1",
+    "snag-media-auth-v2",
+    "tenant-security-tests-v1"
   ]
 }
