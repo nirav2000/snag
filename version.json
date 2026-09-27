@@ -1,9 +1,9 @@
 {
-  "build": "2026.09.27.1645",
-  "publishedAt": "2026-09-27T16:45:00+01:00",
+  "build": "2026.09.27.1715",
+  "publishedAt": "2026-09-27T17:15:00+01:00",
   "channel": "release",
   "stableRef": "stable",
-  "stableBuild": "2026.09.27.1645",
+  "stableBuild": "2026.09.27.1715",
   "features": [
     "shared-account-v1",
     "shared-privacy-v1",
@@ -14,6 +14,10 @@
     "shared-account-v2",
     "account-wide-pro-v1",
     "snag-media-auth-v2",
-    "tenant-security-tests-v1"
+    "tenant-security-tests-v1",
+    "shared-privacy-v2",
+    "telemetry-default-on-v1",
+    "developer-telemetry-controls-v1",
+    "shared-worker-deploy-bridge-v1"
   ]
 }

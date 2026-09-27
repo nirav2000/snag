@@ -4,7 +4,7 @@ Snag is a mobile-first property snagging and shared completion workflow for home
 
 ## Release
 
-Current release: **2026.09.27.1645**
+Current release: **2026.09.27.1715**
 
 The release keeps the existing Snag data and Version Lab compatibility surface while adding multi-customer accounts, stronger tenant isolation, privacy controls and the commercial/payment foundation.
 
@@ -100,7 +100,7 @@ Firestore rules deploy through the existing keyless GitHub OIDC workflow in `nir
 
 ## Privacy
 
-Optional Firebase usage telemetry and personalised App Monitor telemetry are privacy-gated for public Snag users. Essential authentication, storage and security requests continue independently.
+Firebase usage telemetry and personalised App Monitor telemetry are enabled by default in Snag. The shared privacy module supports app-defined defaults. A passkey-authenticated developer setting controls whether ordinary Snag users are shown the telemetry opt-out switch; essential authentication, storage and security requests continue independently.
 
 See `privacy.html` and `terms.html` for the published release notices.
 
@@ -112,3 +112,10 @@ The payment code is safe to deploy before credentials exist. The Worker reports 
 - `stripeWebhookConfigured`
 
 Live checkout remains unavailable until the Stripe secret and webhook secret are securely configured.
+
+
+### Developer telemetry control
+
+The global setting is stored by the shared App Monitor service. The developer panel appears in Snag only when the browser has a valid App Monitor admin session. It controls whether ordinary users see the telemetry opt-out switch. The default is `false`, so telemetry is enabled and the user switch is hidden.
+
+The App Monitor Worker source remains single-source in `nirav2000/Apps`. Because Cloudflare deployment credentials currently live in the Snag repository, `.github/workflows/deploy-shared-app-monitor.yml` checks the shared source hourly and deploys it only when the Worker build differs.
