@@ -1,1 +1,469 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Snag · Close the loop on defects</title><meta name="description" content="Record defects once, keep homeowner, builder and trades on the same evidence, and close each snag properly."><style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Arial,sans-serif;color:#111827;background:#fbfbfa}a{text-decoration:none;color:inherit}.wrap{max-width:1040px;margin:auto;padding:24px}.nav{display:flex;justify-content:space-between;align-items:center}.brand{font-weight:900}.hero{padding:90px 0 60px;display:grid;grid-template-columns:1.15fr .85fr;gap:54px;align-items:center}.eyebrow{font-size:12px;font-weight:850;letter-spacing:.16em;color:#475467}.hero h1{font-family:Georgia,serif;font-size:58px;line-height:.98;font-weight:500;letter-spacing:-.04em;margin:12px 0 20px}.hero p{font-size:19px;line-height:1.55;color:#475467}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:26px}.btn{display:inline-flex;padding:13px 18px;border-radius:13px;border:1px solid #d0d5dd;font-weight:800;background:white}.btn.primary{background:#071a34;color:white;border-color:#071a34}.flow{background:white;border:1px solid #e5e7eb;border-radius:24px;padding:22px}.step{padding:16px 0;border-bottom:1px solid #eee}.step:last-child{border:0}.step b{display:block;margin-bottom:5px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:26px 0 70px}.card{background:white;border:1px solid #e5e7eb;border-radius:18px;padding:20px}.price{font-family:Georgia,serif;font-size:42px}.small{color:#667085}.footer{border-top:1px solid #e5e7eb;padding:28px 0;color:#667085;font-size:13px}@media(max-width:760px){.hero{grid-template-columns:1fr;padding-top:55px}.hero h1{font-size:43px}.grid{grid-template-columns:1fr}.wrap{padding:18px}}</style></head><body><div class="wrap"><nav class="nav"><div class="brand">Snag</div><a class="btn" href="./?app=1">Open app</a></nav><main><section class="hero"><div><div class="eyebrow">HOMEOWNER · BUILDER · TRADE</div><h1>Record the problem once. Close the loop properly.</h1><p>Photos, instructions, replies, progress evidence and sign-off stay together so everyone knows what is outstanding and what “finished” means.</p><div class="actions"><a class="btn primary" href="./?app=1">Start free</a><a class="btn" href="./?app=1&plan=home_project">Unlock a property · £34.99</a></div></div><div class="flow"><div class="step"><b>1 · Capture</b><span class="small">Photo, video, voice or description.</span></div><div class="step"><b>2 · Assign</b><span class="small">Give a builder or trade persistent project access.</span></div><div class="step"><b>3 · Discuss</b><span class="small">Keep the conversation beside the evidence.</span></div><div class="step"><b>4 · Review</b><span class="small">Move work into “Needs review”.</span></div><div class="step"><b>5 · Resolve</b><span class="small">Retain a searchable handover record.</span></div></div></section><section class="grid"><div class="card"><div class="eyebrow">HOME PROJECT</div><div class="price">£34.99</div><p class="small">One-off per property. Unlimited snags and invited participants.</p><a class="btn primary" href="./?app=1&plan=home_project">Choose Home Project</a></div><div class="card"><div class="eyebrow">SNAG PRO</div><div class="price">£12<span style="font-size:18px">/mo</span></div><p class="small">For builders and managers running multiple live projects.</p><a class="btn" href="./?app=1&plan=pro">Choose Pro</a></div><div class="card"><div class="eyebrow">FREE</div><h2>Try the workflow</h2><p class="small">Test capture, rooms, status and collaboration before buying.</p><a class="btn" href="./?app=1">Try Snag</a></div></section></main><footer class="footer">Snag · 2026.09.27.1715 · <a href="./privacy.html">Privacy</a> · <a href="./terms.html">Terms</a> · <a href="./?app=1">App</a></footer></div></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1f33">
+<title>Snag · Close the loop on defects</title>
+<meta name="description" content="Record defects once, keep homeowner, builder and trades on the same evidence, and close each snag properly.">
+<link rel="icon" href="./snag-mark.svg">
+<style>
+:root{
+  --ink:#0b1f33;
+  --ink-2:#142c44;
+  --paper:#f6f3ec;
+  --card:#fffdfa;
+  --muted:#667085;
+  --line:rgba(11,31,51,.12);
+  --coral:#ff6b4a;
+  --coral-2:#ff8d73;
+  --mint:#cfe6da;
+  --success:#2f7d65;
+  --shadow:0 24px 70px rgba(11,31,51,.13);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Arial,sans-serif;
+  color:var(--ink);
+  background:
+    radial-gradient(circle at 4% 0%,rgba(255,107,74,.08),transparent 26rem),
+    linear-gradient(180deg,#fbfaf7 0%,var(--paper) 100%);
+}
+a{text-decoration:none;color:inherit}
+button,a{ -webkit-tap-highlight-color:transparent}
+.shell{width:min(1180px,calc(100% - 36px));margin:auto}
+.nav{
+  height:84px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:20px;
+}
+.brand{display:inline-flex;align-items:center;gap:12px;font-weight:900;font-size:22px;letter-spacing:-.035em}
+.brand img{width:42px;height:42px;display:block}
+.nav-actions{display:flex;align-items:center;gap:10px}
+.nav-link{font-size:14px;font-weight:750;color:#475467;padding:10px 12px}
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:9px;
+  min-height:46px;
+  padding:0 17px;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.72);
+  font-size:14px;
+  font-weight:850;
+  box-shadow:0 1px 1px rgba(11,31,51,.03);
+  transition:transform .18s ease,box-shadow .18s ease,background .18s ease;
+}
+.btn:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(11,31,51,.09)}
+.btn.primary{background:var(--coral);border-color:var(--coral);color:#fff;box-shadow:0 10px 30px rgba(255,107,74,.25)}
+.btn.dark{background:var(--ink);border-color:var(--ink);color:white}
+.btn.ghost-dark{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.23);color:white;backdrop-filter:blur(8px)}
+.hero{
+  position:relative;
+  min-height:640px;
+  overflow:hidden;
+  border-radius:34px;
+  background:
+    radial-gradient(circle at 74% 22%,rgba(255,107,74,.22),transparent 17rem),
+    radial-gradient(circle at 98% 76%,rgba(207,230,218,.12),transparent 23rem),
+    linear-gradient(135deg,#0b1f33 0%,#102943 56%,#17374a 100%);
+  color:white;
+  box-shadow:var(--shadow);
+}
+.hero-grid{
+  position:relative;
+  z-index:2;
+  min-height:640px;
+  display:grid;
+  grid-template-columns:1.04fr .96fr;
+  align-items:center;
+  gap:54px;
+  padding:74px 70px 66px;
+}
+.hero-copy{max-width:640px}
+.eyebrow{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:18px;
+  font-size:11px;
+  line-height:1;
+  font-weight:900;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+}
+.eyebrow::before{content:"";width:26px;height:2px;border-radius:2px;background:var(--coral)}
+.hero h1{
+  max-width:780px;
+  margin:0;
+  font-family:Iowan Old Style,Palatino,Georgia,serif;
+  font-weight:500;
+  font-size:clamp(48px,5.6vw,78px);
+  line-height:.96;
+  letter-spacing:-.055em;
+}
+.hero h1 em{font-style:normal;color:#ffd2c7}
+.hero-copy>p{
+  max-width:620px;
+  margin:25px 0 0;
+  color:rgba(255,255,255,.74);
+  font-size:18px;
+  line-height:1.62;
+}
+.hero-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:31px}
+.hero-trust{display:flex;flex-wrap:wrap;gap:18px;margin-top:25px;color:rgba(255,255,255,.58);font-size:12px;font-weight:750}
+.hero-trust span{display:inline-flex;align-items:center;gap:7px}
+.hero-trust i{width:5px;height:5px;border-radius:50%;background:var(--coral)}
+.blueprint{
+  position:absolute;
+  inset:auto -7% -21% auto;
+  width:64%;
+  opacity:.16;
+  transform:rotate(-4deg);
+  z-index:1;
+}
+.blueprint path,.blueprint rect,.blueprint line{vector-effect:non-scaling-stroke}
+.preview{
+  position:relative;
+  min-height:488px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.preview::before{
+  content:"";
+  position:absolute;
+  width:360px;height:360px;
+  border-radius:50%;
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);
+  box-shadow:0 0 0 42px rgba(255,255,255,.025),0 0 0 84px rgba(255,255,255,.018);
+}
+.project-card{
+  position:relative;
+  width:min(410px,100%);
+  border-radius:28px;
+  background:rgba(255,255,255,.96);
+  color:var(--ink);
+  overflow:hidden;
+  box-shadow:0 30px 80px rgba(0,0,0,.28);
+  transform:rotate(2deg);
+}
+.photo{
+  position:relative;
+  height:216px;
+  overflow:hidden;
+  background:
+    linear-gradient(150deg,rgba(255,255,255,.18),transparent 38%),
+    linear-gradient(135deg,#b9c8c7 0 25%,#e5ddd0 25% 51%,#9caaa8 51% 61%,#d7cec0 61% 100%);
+}
+.photo::before{
+  content:"";
+  position:absolute;
+  left:14%;top:12%;
+  width:55%;height:60%;
+  border:12px solid rgba(255,255,255,.74);
+  border-bottom-width:18px;
+  box-shadow:22px 16px 0 rgba(79,96,99,.14);
+}
+.photo::after{
+  content:"";
+  position:absolute;
+  width:2px;height:88px;
+  left:70%;top:46px;
+  background:#73584f;
+  transform:rotate(22deg);
+  box-shadow:5px 18px 0 -0.5px #73584f,-5px 39px 0 -0.5px #73584f;
+  opacity:.75;
+}
+.pin{
+  position:absolute;
+  right:42px;top:52px;
+  width:34px;height:34px;
+  border-radius:50% 50% 50% 0;
+  background:var(--coral);
+  transform:rotate(-45deg);
+  box-shadow:0 8px 18px rgba(255,107,74,.35);
+}
+.pin::after{content:"";position:absolute;width:10px;height:10px;border-radius:50%;background:white;left:12px;top:12px}
+.project-body{padding:20px 22px 22px}
+.project-head{display:flex;justify-content:space-between;align-items:start;gap:16px}
+.ref{font-size:11px;font-weight:900;letter-spacing:.12em;color:#7a8794}
+.project-body h3{margin:5px 0 0;font-size:21px;letter-spacing:-.025em}
+.badge{flex:0 0 auto;border-radius:999px;padding:8px 10px;background:#fff1ed;color:#b13f28;font-size:11px;font-weight:900}
+.meta{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:18px}
+.meta div{border:1px solid #e8eaed;border-radius:14px;padding:12px}
+.meta span{display:block;color:#86909c;font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:850}
+.meta strong{display:block;margin-top:5px;font-size:13px}
+.timeline{display:flex;align-items:center;gap:0;margin-top:19px}
+.timeline .dot{width:9px;height:9px;border-radius:50%;background:#d5dbe0;z-index:2}
+.timeline .dot.done{background:var(--success)}
+.timeline .dot.current{background:var(--coral);box-shadow:0 0 0 5px #ffe6df}
+.timeline .line{height:2px;flex:1;background:#e4e8eb}
+.resolve-card{
+  position:absolute;
+  right:-20px;
+  bottom:18px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:12px 15px;
+  border-radius:16px;
+  background:#fff;
+  color:var(--ink);
+  box-shadow:0 18px 45px rgba(0,0,0,.2);
+  transform:rotate(-2deg);
+  font-size:12px;
+  font-weight:850;
+}
+.resolve-card b{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:#dff1e8;color:var(--success);font-size:15px}
+.section{padding:92px 0}
+.intro{text-align:center;max-width:760px;margin:0 auto 42px}
+.kicker{font-size:11px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--coral)}
+.intro h2{
+  margin:12px 0 12px;
+  font-family:Iowan Old Style,Palatino,Georgia,serif;
+  font-size:clamp(36px,4vw,53px);
+  line-height:1;
+  letter-spacing:-.045em;
+  font-weight:500;
+}
+.intro p{margin:0;color:#687481;font-size:17px;line-height:1.6}
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.step{
+  position:relative;
+  min-height:172px;
+  padding:20px;
+  background:rgba(255,255,255,.72);
+  border:1px solid var(--line);
+  border-radius:20px;
+  overflow:hidden;
+}
+.step::after{
+  content:attr(data-n);
+  position:absolute;
+  right:12px;bottom:-12px;
+  font-family:Georgia,serif;
+  font-size:76px;
+  line-height:1;
+  color:rgba(11,31,51,.05);
+}
+.step-icon{display:grid;place-items:center;width:39px;height:39px;border-radius:13px;background:#edf1f2;font-weight:900;margin-bottom:26px}
+.step:nth-child(1) .step-icon,.step:nth-child(5) .step-icon{background:#fff0ec;color:#c34c34}
+.step b{display:block;font-size:15px;margin-bottom:7px}
+.step p{margin:0;color:#77818c;font-size:13px;line-height:1.45}
+.pricing-wrap{
+  border-radius:30px;
+  background:#fffdf9;
+  border:1px solid rgba(11,31,51,.1);
+  box-shadow:0 20px 55px rgba(11,31,51,.06);
+  padding:34px;
+}
+.pricing-head{display:flex;justify-content:space-between;align-items:end;gap:30px;margin-bottom:28px}
+.pricing-head h2{margin:6px 0 0;font-size:34px;letter-spacing:-.04em}
+.pricing-head p{margin:0;max-width:480px;color:#737e88;line-height:1.5;font-size:14px}
+.grid{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:14px}
+.card{
+  min-height:282px;
+  display:flex;
+  flex-direction:column;
+  padding:24px;
+  border:1px solid #e7e9eb;
+  border-radius:22px;
+  background:white;
+}
+.card.featured{background:var(--ink);color:white;border-color:var(--ink);position:relative;overflow:hidden}
+.card.featured::after{content:"";position:absolute;width:180px;height:180px;border-radius:50%;right:-70px;top:-90px;background:rgba(255,107,74,.17)}
+.plan{font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:#7c8792}
+.featured .plan{color:#f4b3a4}
+.price{font-family:Iowan Old Style,Palatino,Georgia,serif;font-size:45px;line-height:1;margin:18px 0 13px;letter-spacing:-.04em}
+.price small{font-family:inherit;font-size:18px}
+.card p{margin:0;color:#737e88;font-size:14px;line-height:1.5}
+.featured p{color:rgba(255,255,255,.68)}
+.card .btn{margin-top:auto;align-self:flex-start}
+.featured .btn{background:white;color:var(--ink);border-color:white}
+.footer{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:18px;
+  padding:29px 0 38px;
+  color:#7a8590;
+  font-size:12px;
+}
+.footer-links{display:flex;gap:18px}
+@media(max-width:900px){
+  .hero-grid{grid-template-columns:1fr;padding:62px 42px 52px;gap:35px}
+  .preview{min-height:430px}
+  .flow{grid-template-columns:repeat(3,1fr)}
+  .grid{grid-template-columns:1fr}
+  .pricing-head{align-items:start;flex-direction:column}
+}
+@media(max-width:620px){
+  .shell{width:min(100% - 24px,1180px)}
+  .nav{height:72px}
+  .brand{font-size:20px}.brand img{width:38px;height:38px}
+  .nav-link{display:none}
+  .nav .btn{min-height:42px;padding:0 14px}
+  .hero{border-radius:25px}
+  .hero-grid{padding:45px 22px 33px;min-height:auto}
+  .hero h1{font-size:47px}
+  .hero-copy>p{font-size:16px}
+  .hero-actions{display:grid;grid-template-columns:1fr}
+  .hero-actions .btn{width:100%}
+  .hero-trust{gap:10px 14px}
+  .preview{min-height:390px}
+  .project-card{width:93%;transform:rotate(1deg)}
+  .resolve-card{right:2px}
+  .photo{height:190px}
+  .section{padding:68px 0}
+  .flow{grid-template-columns:1fr 1fr}
+  .step{min-height:160px}
+  .pricing-wrap{padding:20px;border-radius:24px}
+  .pricing-head h2{font-size:30px}
+  .footer{align-items:flex-start;flex-direction:column-reverse}
+}
+@media(max-width:420px){
+  .flow{grid-template-columns:1fr}
+  .step{min-height:135px}
+  .step-icon{margin-bottom:17px}
+}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="nav" aria-label="Primary">
+    <a class="brand" href="./welcome.html" aria-label="Snag home">
+      <img src="./snag-mark.svg" alt="">
+      <span>Snag</span>
+    </a>
+    <div class="nav-actions">
+      <a class="nav-link" href="#how">How it works</a>
+      <a class="nav-link" href="#pricing">Pricing</a>
+      <a class="btn dark" href="./?app=1">Open app <span aria-hidden="true">↗</span></a>
+    </div>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <svg class="blueprint" viewBox="0 0 900 650" aria-hidden="true">
+        <g fill="none" stroke="#ffffff" stroke-width="2">
+          <rect x="64" y="58" width="692" height="472" rx="8"/>
+          <line x1="302" y1="58" x2="302" y2="530"/>
+          <line x1="302" y1="318" x2="756" y2="318"/>
+          <line x1="520" y1="58" x2="520" y2="318"/>
+          <line x1="64" y1="242" x2="302" y2="242"/>
+          <path d="M150 242a76 76 0 0 1 76-76"/>
+          <path d="M520 244a72 72 0 0 1 72 72"/>
+          <path d="M302 392a68 68 0 0 1 68 68"/>
+          <rect x="112" y="88" width="90" height="16"/>
+          <rect x="584" y="530" width="108" height="16"/>
+          <line x1="792" y1="84" x2="792" y2="500"/>
+          <line x1="778" y1="84" x2="806" y2="84"/>
+          <line x1="778" y1="500" x2="806" y2="500"/>
+          <line x1="100" y1="566" x2="710" y2="566"/>
+          <line x1="100" y1="552" x2="100" y2="580"/>
+          <line x1="710" y1="552" x2="710" y2="580"/>
+        </g>
+      </svg>
+
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow">Homeowner · Builder · Trade</div>
+          <h1>See the snag.<br><em>Close the loop.</em></h1>
+          <p>Record a defect once, keep the photo, conversation and repair evidence together, and make “finished” something everyone can actually see.</p>
+          <div class="hero-actions">
+            <a class="btn primary" href="./?app=1">Start free <span aria-hidden="true">→</span></a>
+            <a class="btn ghost-dark" href="./?app=1&plan=home_project">Unlock a property · £34.99</a>
+          </div>
+          <div class="hero-trust" aria-label="Key benefits">
+            <span><i></i>No installation</span>
+            <span><i></i>Share with trades</span>
+            <span><i></i>Searchable handover record</span>
+          </div>
+        </div>
+
+        <div class="preview" aria-label="Example snag workflow">
+          <article class="project-card">
+            <div class="photo"><span class="pin" aria-hidden="true"></span></div>
+            <div class="project-body">
+              <div class="project-head">
+                <div><span class="ref">S-014 · KITCHEN</span><h3>Window seal lifting</h3></div>
+                <span class="badge">Needs review</span>
+              </div>
+              <div class="meta">
+                <div><span>Assigned to</span><strong>Window installer</strong></div>
+                <div><span>Updated</span><strong>Today · 14:32</strong></div>
+              </div>
+              <div class="timeline" aria-hidden="true">
+                <span class="dot done"></span><span class="line"></span>
+                <span class="dot done"></span><span class="line"></span>
+                <span class="dot current"></span><span class="line"></span>
+                <span class="dot"></span>
+              </div>
+            </div>
+          </article>
+          <div class="resolve-card"><b>✓</b><span>Evidence attached<br>Ready to sign off</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="how">
+      <div class="intro">
+        <span class="kicker">One shared record</span>
+        <h2>From “there’s a problem” to “that’s finished”.</h2>
+        <p>Snag keeps every step beside the issue, so photos, instructions and replies do not disappear into separate message threads.</p>
+      </div>
+      <div class="flow">
+        <article class="step" data-n="1"><div class="step-icon">＋</div><b>Capture</b><p>Photo, video, voice or description.</p></article>
+        <article class="step" data-n="2"><div class="step-icon">→</div><b>Assign</b><p>Give the right builder or trade access.</p></article>
+        <article class="step" data-n="3"><div class="step-icon">••</div><b>Discuss</b><p>Keep the conversation beside the evidence.</p></article>
+        <article class="step" data-n="4"><div class="step-icon">◎</div><b>Review</b><p>Move completed work into “Needs review”.</p></article>
+        <article class="step" data-n="5"><div class="step-icon">✓</div><b>Resolve</b><p>Sign off and retain the handover history.</p></article>
+      </div>
+    </section>
+
+    <section class="section" id="pricing">
+      <div class="pricing-wrap">
+        <div class="pricing-head">
+          <div><span class="kicker">Simple access</span><h2>Use it for one home or every project.</h2></div>
+          <p>Start with the workflow for free. Unlock the version that matches how you manage defects once you know it works for you.</p>
+        </div>
+        <div class="grid">
+          <article class="card featured">
+            <span class="plan">Home project</span>
+            <div class="price">£34.99</div>
+            <p>One-off per property. Unlimited snags and invited participants.</p>
+            <a class="btn" href="./?app=1&plan=home_project">Choose Home Project <span aria-hidden="true">→</span></a>
+          </article>
+          <article class="card">
+            <span class="plan">Snag Pro</span>
+            <div class="price">£12<small>/mo</small></div>
+            <p>For builders and managers running multiple live projects.</p>
+            <a class="btn" href="./?app=1&plan=pro">Choose Pro</a>
+          </article>
+          <article class="card">
+            <span class="plan">Free</span>
+            <div class="price">Try it</div>
+            <p>Test capture, rooms, status and collaboration before buying.</p>
+            <a class="btn" href="./?app=1">Open Snag</a>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Snag · 2026.09.27.1715</span>
+    <div class="footer-links"><a href="./privacy.html">Privacy</a><a href="./terms.html">Terms</a><a href="./?app=1">App</a></div>
+  </footer>
+</div>
+</body>
+</html>
