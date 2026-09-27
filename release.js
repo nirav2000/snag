@@ -2,6 +2,44 @@
 'use strict';
 const $=s=>document.querySelector(s);
 const ce=(t,c)=>{const e=document.createElement(t);if(c)e.className=c;return e};
+const DEV_API='https://apps-monitor-api.nirav2000-github.workers.dev/app-monitor';
+let developerConfig={userTelemetryOptOutVisible:false},developerAdmin=null;
+async function loadDeveloperConfig(){
+  try{
+    const r=await fetch(DEV_API+'/developer-config?app=Snag',{cache:'no-store'});
+    if(r.ok)developerConfig={...developerConfig,...await r.json()};
+  }catch(e){console.warn('Developer config unavailable',e)}
+  renderTelemetryControls();
+  return developerConfig;
+}
+async function detectDeveloperAdmin(){
+  if(!window.AppsPasskeyAuth)return false;
+  try{
+    developerAdmin=AppsPasskeyAuth.create({baseUrl:DEV_API,sessionStoreKey:'app-monitor.admin-session.v2',failureStoreKey:'app-monitor.auth-failures.v2'});
+    const restored=developerAdmin.restoreSession();if(!restored)return false;
+    const valid=await developerAdmin.validateSession();if(!valid)return false;
+    renderDeveloperControls(true);return true;
+  }catch(e){console.warn('Developer admin session unavailable',e);return false}
+}
+function renderTelemetryControls(){
+  const row=$('#releaseUserTelemetry');if(!row)return;
+  row.classList.toggle('hidden',developerConfig.userTelemetryOptOutVisible!==true);
+  if(developerConfig.userTelemetryOptOutVisible===true){
+    const v=AppsPrivacy.get(),input=$('#releaseTelemetryEnabled');
+    if(input)input.checked=v.analytics===true&&v.personalisedMonitoring===true;
+  }
+}
+function renderDeveloperControls(show){
+  const card=$('#releaseDeveloperControls');if(card)card.classList.toggle('hidden',!show);
+  if(show&&$('#releaseShowOptOut'))$('#releaseShowOptOut').checked=developerConfig.userTelemetryOptOutVisible===true;
+}
+async function saveDeveloperConfig(){
+  if(!developerAdmin?.session?.token)throw new Error('Developer session is not active. Open App Monitor and sign in with your passkey.');
+  const value={app:'Snag',userTelemetryOptOutVisible:$('#releaseShowOptOut')?.checked===true};
+  const r=await fetch(DEV_API+'/developer-config',{method:'POST',headers:{'Content-Type':'application/json',...developerAdmin.authHeaders()},body:JSON.stringify(value)});
+  if(!r.ok)throw new Error(await r.text());
+  developerConfig={...developerConfig,...await r.json()};renderTelemetryControls();renderDeveloperControls(true);return developerConfig;
+}
 
 window.SnagCommercial={
   state:{projectId:null,loadedAt:0,stripeConfigured:false,paid:false,plan:'free',status:'free'},
@@ -97,24 +135,15 @@ function modal(){
   host.addEventListener('click',e=>{if(e.target===host)host.classList.add('hidden')});
   return host;
 }
-function privacyBanner(){
-  if(AppsPrivacy.hasChoice())return;
-  const b=ce('div','privacy-banner');b.id='privacyBanner';
-  b.innerHTML='<p><strong>Privacy choices</strong><br>Essential cloud services save and secure projects. Optional usage analytics and personalised monitoring are off until you choose.</p><div class="release-actions"><button id="privacyEssential" class="secondary-button" type="button">Essential only</button><button id="privacyAllow" class="primary-button" type="button">Allow optional analytics</button></div><p class="microcopy"><a href="./privacy.html" target="_blank" style="color:white">Privacy details</a></p>';
-  document.body.appendChild(b);
-  $('#privacyEssential').onclick=()=>{AppsPrivacy.set({analytics:false,personalisedMonitoring:false});b.remove()};
-  $('#privacyAllow').onclick=()=>{AppsPrivacy.set({analytics:true,personalisedMonitoring:true});b.remove()};
-}
+function privacyBanner(){return null}
 function addSettingsCard(){
   const body=$('#settingsDialog .modal-body');if(!body||$('#releaseSettingsCard'))return;
   const c=ce('section','settings-card release-card');c.id='releaseSettingsCard';
-  c.innerHTML='<div class="section-kicker">ACCOUNT · PRIVACY · BILLING</div><h3>Release account</h3><p id="releaseSettingsState" class="subtle">Loading…</p><div class="release-actions"><button id="openReleaseAccount" class="primary-button" type="button">Account & billing</button><button id="releasePrivacyChoice" class="secondary-button" type="button">Privacy choices</button><a class="secondary-button" href="./welcome.html" target="_blank">About Snag</a></div>';
+  c.innerHTML='<div class="section-kicker">ACCOUNT · PRIVACY · BILLING</div><h3>Release account</h3><p id="releaseSettingsState" class="subtle">Loading…</p><div class="release-actions"><button id="openReleaseAccount" class="primary-button" type="button">Account & billing</button><a class="secondary-button" href="./welcome.html" target="_blank">About Snag</a></div><div id="releaseUserTelemetry" class="hidden" style="margin-top:12px"><label class="switch-row"><input id="releaseTelemetryEnabled" type="checkbox"><span>Share usage diagnostics to help improve Snag</span></label></div><div id="releaseDeveloperControls" class="release-card hidden" style="margin-top:12px"><div class="section-kicker">DEVELOPER CONTROLS</div><h3>Telemetry controls</h3><p class="subtle">Tracking is on by default. This controls whether ordinary users are shown an opt-out switch.</p><label class="switch-row"><input id="releaseShowOptOut" type="checkbox"><span>Show users the telemetry opt-out setting</span></label><button id="releaseSaveDeveloper" class="secondary-button" type="button">Save developer setting</button></div>';
   body.prepend(c);
   $('#openReleaseAccount').onclick=()=>{modal().classList.remove('hidden');refresh()};
-  $('#releasePrivacyChoice').onclick=()=>{
-    const v=AppsPrivacy.get(),ok=confirm('Optional analytics are currently '+(v.analytics?'ON':'OFF')+'. Press OK to enable optional analytics and personalised monitoring; Cancel for essential-only.');
-    AppsPrivacy.set({analytics:ok,personalisedMonitoring:ok});refresh();
-  };
+  const telemetry=$('#releaseTelemetryEnabled');if(telemetry)telemetry.onchange=()=>{AppsPrivacy.set({analytics:telemetry.checked,personalisedMonitoring:telemetry.checked});refresh()};
+  const saveDeveloper=$('#releaseSaveDeveloper');if(saveDeveloper)saveDeveloper.onclick=async()=>{try{await saveDeveloperConfig();SnagReleaseBridge.toast('Developer telemetry setting saved')}catch(e){SnagReleaseBridge.toast(e.message)}};
 }
 async function status(){
   const c=SnagReleaseBridge.context(),u=AppsAccount.snapshot().user,s=$('#releaseAccountState'),ss=$('#releaseSettingsState');
@@ -149,7 +178,7 @@ async function checkout(planId){
 }
 async function start(){
   AppsBilling.configure({endpoint:SnagReleaseBridge.billingEndpoint(),tokenProvider:SnagReleaseBridge.token});
-  modal();addSettingsCard();privacyBanner();
+  modal();addSettingsCard();privacyBanner();await loadDeveloperConfig();await detectDeveloperAdmin();renderTelemetryControls();
 
   $('#releaseProtect').onclick=async()=>{
     try{await AppsAccount.protectOrCreate($('#releaseEmail').value,$('#releasePassword').value);await AppsAccount.sendVerification().catch(()=>{});refresh();SnagReleaseBridge.toast('Account protected')}
