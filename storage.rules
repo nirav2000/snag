@@ -1,8 +1,41 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /projects/{projectId}/{allPaths=**} {
-      allow read, write: if request.auth != null && firestore.exists(/databases/(default)/documents/projects/$(projectId)/members/$(request.auth.uid));
+    // Firebase Storage is not Snag's production media store (Cloudflare R2 is).
+    // Keep these rules aligned with the Snag tenancy model in case Storage is
+    // used for a future feature or migration.
+    function signedIn() {
+      return request.auth != null;
+    }
+    function projectDoc(projectId) {
+      return firestore.get(/databases/(default)/documents/snag_projects/$(projectId));
+    }
+    function isOwner(projectId) {
+      return signedIn() && projectDoc(projectId).data.ownerUid == request.auth.uid;
+    }
+    function hasMember(projectId) {
+      return signedIn() &&
+        firestore.exists(/databases/(default)/documents/snag_projects/$(projectId)/members/$(request.auth.uid));
+    }
+    function memberData(projectId) {
+      return firestore.get(/databases/(default)/documents/snag_projects/$(projectId)/members/$(request.auth.uid)).data;
+    }
+    function hasActiveAccess(projectId) {
+      return isOwner(projectId) ||
+        (
+          hasMember(projectId) &&
+          (
+            memberData(projectId).role == 'owner' ||
+            (
+              memberData(projectId).inviteId is string &&
+              firestore.exists(/databases/(default)/documents/snag_projects/$(projectId)/invites/$(memberData(projectId).inviteId)) &&
+              firestore.get(/databases/(default)/documents/snag_projects/$(projectId)/invites/$(memberData(projectId).inviteId)).data.active == true
+            )
+          )
+        );
+    }
+    match /snag-projects/{projectId}/{allPaths=**} {
+      allow read, write: if hasActiveAccess(projectId);
     }
   }
 }
