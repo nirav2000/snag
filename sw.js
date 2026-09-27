@@ -1,12 +1,12 @@
-const CACHE='snag-static-v37';
-const BUILD='2026.09.23.1035';
+const CACHE='snag-static-v38';
+const BUILD='2026.09.27.1645';
 const STATIC=['./styles.css?v='+BUILD,'./notes.css?v='+BUILD,'./manifest.webmanifest','./icon.svg'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(STATIC)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
   if(event.request.method!=='GET')return;
   const url=new URL(event.request.url);
-  const core=url.pathname.endsWith('/snag/')||url.pathname.endsWith('/index.html')||url.pathname.endsWith('/app.js')||url.pathname.endsWith('/notes.js')||url.pathname.endsWith('/firebase-config.js')||url.pathname.endsWith('/legacy-bridge.html')||url.pathname.endsWith('/version-lab.html')||url.pathname.endsWith('/version.json')||url.pathname.endsWith('/sw.js');
+  const core=url.pathname.endsWith('/snag/')||url.pathname.endsWith('/index.html')||url.pathname.endsWith('/app.js')||url.pathname.endsWith('/notes.js')||url.pathname.endsWith('/firebase-config.js')||url.pathname.endsWith('/legacy-bridge.html')||url.pathname.endsWith('/version-lab.html')||url.pathname.endsWith('/version.json')||url.pathname.endsWith('/release.js')||url.pathname.endsWith('/welcome.html')||url.pathname.endsWith('/privacy.html')||url.pathname.endsWith('/terms.html')||url.pathname.endsWith('/sw.js');
   if(core){
     event.respondWith(fetch(event.request,{cache:'no-store'}));
     return;

@@ -8,6 +8,7 @@
   "r2_buckets": [{ "binding": "SNAG_MEDIA", "bucket_name": "snag-media" }],
   "vars": {
     "ALLOWED_ORIGIN": "https://nirav2000.github.io",
-    "FIREBASE_WEB_API_KEY": "AIzaSyBnph6Ob5jhvJZMGvk1cpF0euno__aRtfU"
+    "FIREBASE_WEB_API_KEY": "AIzaSyBnph6Ob5jhvJZMGvk1cpF0euno__aRtfU",
+    "FIREBASE_PROJECT_ID": "snag-509418"
   }
 }

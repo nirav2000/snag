@@ -10,6 +10,12 @@ on:
       - "legacy-bridge.html"
       - "version-lab.html"
       - "firestore.rules"
+      - "cloudflare-worker.js"
+      - "release.js"
+      - "welcome.html"
+      - "privacy.html"
+      - "terms.html"
+      - "release-check.mjs"
       - ".github/workflows/validate.yml"
 
 permissions:
@@ -28,6 +34,8 @@ jobs:
           node --check app.js
           node --check notes.js
           node --check cloudflare-worker.js
+          node --check release.js
+          node release-check.mjs
           node <<'NODE'
           const fs=require('fs');
           const html=fs.readFileSync('legacy-bridge.html','utf8');

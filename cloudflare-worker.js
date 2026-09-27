@@ -1,104 +1,16 @@
-const WORKER_BUILD='2026.09.24.1505';
-// Cloudflare Worker for Snag Recorder media + lightweight Firebase usage telemetry.
-// App Monitor has moved to the dedicated apps-monitor-api Worker and its own R2 bucket.
-const cors=(origin,allowed)=>({
-  'Access-Control-Allow-Origin': origin===allowed?origin:allowed,
-  'Access-Control-Allow-Methods':'PUT,POST,GET,OPTIONS',
-  'Access-Control-Allow-Headers':'Authorization,Content-Type',
-  'Access-Control-Max-Age':'86400'
-});
+const WORKER_BUILD='2026.09.27.1645';
+const cors=(origin,allowed)=>({'Access-Control-Allow-Origin':origin===allowed?origin:allowed,'Access-Control-Allow-Methods':'PUT,POST,GET,DELETE,OPTIONS','Access-Control-Allow-Headers':'Authorization,Content-Type','Access-Control-Max-Age':'86400'});
 const allowedOrigin=(request,env)=>(request.headers.get('Origin')||'')===(env.ALLOWED_ORIGIN||'https://nirav2000.github.io');
-async function verifyFirebaseToken(request,env){
-  const h=request.headers.get('Authorization')||'';
-  if(!h.startsWith('Bearer '))throw new Response('Unauthorized',{status:401});
-  const token=h.slice(7);
-  const r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key='+encodeURIComponent(env.FIREBASE_WEB_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:token})});
-  if(!r.ok)throw new Response('Unauthorized',{status:401});
-  const data=await r.json();if(!data.users?.[0]?.localId)throw new Response('Unauthorized',{status:401});
-  return data.users[0];
-}
-const validDate=x=>/^\d{4}-\d{2}-\d{2}$/.test(x||'');
-const validDevice=x=>/^[A-Za-z0-9._-]{8,100}$/.test(x||'');
-function mergeUsage(target,out){
-  out.version=3;out.targets??={};out.hours??={};out.buckets??={};
-  for(const [key,t] of Object.entries(target?.targets||{})){
-    const T=out.targets[key]??={project:t.project||'unknown',database:t.database||'(default)',apps:{}};
-    for(const [app,a] of Object.entries(t.apps||{})){
-      const A=T.apps[app]??={reads:0,writes:0,deletes:0,listeners:0,ops:{}};
-      for(const n of ['reads','writes','deletes','listeners'])A[n]+=(Number(a[n])||0);
-      for(const [op,o] of Object.entries(a.ops||{})){
-        const O=A.ops[op]??={reads:0,writes:0,deletes:0,listeners:0};
-        for(const n of ['reads','writes','deletes','listeners'])O[n]+=(Number(o[n])||0);
-      }
-    }
-  }
-  for(const [h,v] of Object.entries(target?.hours||{})){
-    const H=out.hours[h]??={reads:0,writes:0,deletes:0};
-    for(const n of ['reads','writes','deletes'])H[n]+=(Number(v[n])||0);
-  }
-  for(const [b,v] of Object.entries(target?.buckets||{})){
-    const B=out.buckets[b]??={targets:{}};
-    for(const [key,t] of Object.entries(v.targets||{})){
-      const BT=B.targets[key]??={project:t.project||'unknown',database:t.database||'(default)',apps:{}};
-      for(const [app,a] of Object.entries(t.apps||{})){
-        const A=BT.apps[app]??={reads:0,writes:0,deletes:0,listeners:0,ops:{}};
-        for(const n of ['reads','writes','deletes','listeners'])A[n]+=(Number(a[n])||0);
-        for(const [op,o] of Object.entries(a.ops||{})){
-          const O=A.ops[op]??={reads:0,writes:0,deletes:0,listeners:0};
-          for(const n of ['reads','writes','deletes','listeners'])O[n]+=(Number(o[n])||0);
-        }
-      }
-    }
-  }
-  return out;
-}
-async function usageRoute(request,env,headers,url){
-  if(!allowedOrigin(request,env))return new Response('Forbidden origin',{status:403,headers});
-  headers={...headers,'Cache-Control':'no-store'};
-  if(url.pathname==='/usage/health')return Response.json({ok:true,service:'firebase-usage',build:WORKER_BUILD,storage:'r2-daily-snapshots'},{headers});
-  if(url.pathname==='/usage/snapshot'&&request.method==='POST'){
-    const len=Number(request.headers.get('Content-Length')||0);if(len>256*1024)return new Response('Payload too large',{status:413,headers});
-    let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
-    if(!validDate(body.date)||!validDevice(body.deviceId)||![2,3].includes(body.version))return new Response('Invalid snapshot',{status:400,headers});
-    const snapshot={version:3,date:body.date,deviceId:body.deviceId,device:body.device||null,updatedAt:new Date().toISOString(),targets:body.targets||{},hours:body.hours||{},buckets:body.buckets||{}};
-    const key='_usage/v2/'+body.date+'/'+body.deviceId+'.json';
-    await env.SNAG_MEDIA.put(key,JSON.stringify(snapshot),{httpMetadata:{contentType:'application/json'}});
-    return Response.json({ok:true,date:body.date,updatedAt:snapshot.updatedAt},{headers});
-  }
-  if(url.pathname==='/usage/day'&&request.method==='GET'){
-    const date=url.searchParams.get('date');if(!validDate(date))return new Response('Invalid date',{status:400,headers});
-    const prefix='_usage/v2/'+date+'/';let cursor,objects=[],truncated=true;
-    while(truncated&&objects.length<1000){
-      const page=await env.SNAG_MEDIA.list({prefix,cursor,limit:1000});
-      objects.push(...page.objects);truncated=page.truncated;cursor=page.cursor;
-    }
-    const aggregate={version:3,date,deviceCount:objects.length,targets:{},hours:{},buckets:{},devices:[]};
-    for(const item of objects){
-      const obj=await env.SNAG_MEDIA.get(item.key);if(!obj)continue;
-      try{const snap=JSON.parse(await obj.text());aggregate.devices.push({deviceId:snap.deviceId,device:snap.device||null,updatedAt:snap.updatedAt,targets:snap.targets||{},hours:snap.hours||{},buckets:snap.buckets||{}});mergeUsage(snap,aggregate)}catch{}
-    }
-    aggregate.generatedAt=new Date().toISOString();
-    return Response.json(aggregate,{headers});
-  }
-  return new Response('Not found',{status:404,headers});
-}
-export default {
- async fetch(request,env){
-  const origin=request.headers.get('Origin')||'',headers=cors(origin,env.ALLOWED_ORIGIN||'https://nirav2000.github.io');
-  if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
-  const url=new URL(request.url),prefix='/objects/';
-  if(url.pathname.startsWith('/usage/'))return usageRoute(request,env,headers,url);
-  if(url.pathname==='/health')return Response.json({ok:true,service:'snag-media-api',build:WORKER_BUILD,r2Bound:!!env.SNAG_MEDIA,usageTelemetry:true,appMonitor:false},{headers});
-  if(!url.pathname.startsWith(prefix))return new Response('Not found',{status:404,headers});
-  if(request.method==='PUT'){try{await verifyFirebaseToken(request,env)}catch(e){if(e instanceof Response){Object.entries(headers).forEach(([k,v])=>e.headers.set(k,v));return e}throw e}}
-  const key=url.pathname.slice(prefix.length).split('/').map(decodeURIComponent).join('/');
-  if(!key||key.includes('..'))return new Response('Bad key',{status:400,headers});
-  if(request.method==='PUT'){
-    const length=Number(request.headers.get('Content-Length')||0);if(length>50*1024*1024)return new Response('File too large',{status:413,headers});
-    await env.SNAG_MEDIA.put(key,request.body,{httpMetadata:{contentType:request.headers.get('Content-Type')||'application/octet-stream'}});
-    return Response.json({key,url:url.origin+'/objects/'+key.split('/').map(encodeURIComponent).join('/')},{headers});
-  }
-  if(request.method==='GET'){const obj=await env.SNAG_MEDIA.get(key);if(!obj)return new Response('Not found',{status:404,headers});const h=new Headers(headers);obj.writeHttpMetadata(h);h.set('etag',obj.httpEtag);return new Response(obj.body,{headers:h})}
-  return new Response('Method not allowed',{status:405,headers});
- }
-};
+async function firebaseIdentity(request,env){const h=request.headers.get('Authorization')||'';if(!h.startsWith('Bearer '))throw new Response('Unauthorized',{status:401});const token=h.slice(7),r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key='+encodeURIComponent(env.FIREBASE_WEB_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:token})});if(!r.ok)throw new Response('Unauthorized',{status:401});const data=await r.json(),user=data.users?.[0];if(!user?.localId)throw new Response('Unauthorized',{status:401});return{token,user,uid:user.localId}}
+const fsBase=env=>`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID||'snag-509418'}/databases/(default)/documents`;
+const field=(doc,name)=>doc?.fields?.[name]?.stringValue??doc?.fields?.[name]?.integerValue??doc?.fields?.[name]?.booleanValue??null;
+async function projectAccess(projectId,identity,env,{owner=false}={}){const r=await fetch(fsBase(env)+'/snag_projects/'+encodeURIComponent(projectId),{headers:{Authorization:'Bearer '+identity.token}});if(!r.ok)throw new Response(r.status===403?'Forbidden':'Project unavailable',{status:r.status===403?403:404});const doc=await r.json();if(owner&&field(doc,'ownerUid')!==identity.uid)throw new Response('Owner access required',{status:403});return doc}
+function projectFromKey(key){const p=key.split('/');return p[0]==='snag-projects'&&p[1]?p[1]:null}
+const validDate=x=>/^\d{4}-\d{2}-\d{2}$/.test(x||''),validDevice=x=>/^[A-Za-z0-9._-]{8,100}$/.test(x||'');
+function mergeUsage(target,out){out.version=3;out.targets??={};out.hours??={};out.buckets??={};for(const [key,t] of Object.entries(target?.targets||{})){const T=out.targets[key]??={project:t.project||'unknown',database:t.database||'(default)',apps:{}};for(const [app,a] of Object.entries(t.apps||{})){const A=T.apps[app]??={reads:0,writes:0,deletes:0,listeners:0,ops:{}};for(const n of ['reads','writes','deletes','listeners'])A[n]+=(Number(a[n])||0);for(const [op,o] of Object.entries(a.ops||{})){const O=A.ops[op]??={reads:0,writes:0,deletes:0,listeners:0};for(const n of ['reads','writes','deletes','listeners'])O[n]+=(Number(o[n])||0)}}}for(const [h,v] of Object.entries(target?.hours||{})){const H=out.hours[h]??={reads:0,writes:0,deletes:0};for(const n of ['reads','writes','deletes'])H[n]+=(Number(v[n])||0)}for(const [b,v] of Object.entries(target?.buckets||{})){const B=out.buckets[b]??={targets:{}};for(const [key,t] of Object.entries(v.targets||{})){const BT=B.targets[key]??={project:t.project||'unknown',database:t.database||'(default)',apps:{}};for(const [app,a] of Object.entries(t.apps||{})){const A=BT.apps[app]??={reads:0,writes:0,deletes:0,listeners:0,ops:{}};for(const n of ['reads','writes','deletes','listeners'])A[n]+=(Number(a[n])||0);for(const [op,o] of Object.entries(a.ops||{})){const O=A.ops[op]??={reads:0,writes:0,deletes:0,listeners:0};for(const n of ['reads','writes','deletes','listeners'])O[n]+=(Number(o[n])||0)}}}}return out}
+async function usageRoute(request,env,headers,url){if(!allowedOrigin(request,env))return new Response('Forbidden origin',{status:403,headers});headers={...headers,'Cache-Control':'no-store'};if(url.pathname==='/usage/health')return Response.json({ok:true,service:'firebase-usage',build:WORKER_BUILD,storage:'r2-daily-snapshots'},{headers});if(url.pathname==='/usage/snapshot'&&request.method==='POST'){const len=Number(request.headers.get('Content-Length')||0);if(len>256*1024)return new Response('Payload too large',{status:413,headers});let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}if(!validDate(body.date)||!validDevice(body.deviceId)||![2,3].includes(body.version))return new Response('Invalid snapshot',{status:400,headers});const snapshot={version:3,date:body.date,deviceId:body.deviceId,device:body.device||null,updatedAt:new Date().toISOString(),targets:body.targets||{},hours:body.hours||{},buckets:body.buckets||{}};await env.SNAG_MEDIA.put('_usage/v2/'+body.date+'/'+body.deviceId+'.json',JSON.stringify(snapshot),{httpMetadata:{contentType:'application/json'}});return Response.json({ok:true,date:body.date,updatedAt:snapshot.updatedAt},{headers})}if(url.pathname==='/usage/day'&&request.method==='GET'){const date=url.searchParams.get('date');if(!validDate(date))return new Response('Invalid date',{status:400,headers});const prefix='_usage/v2/'+date+'/';let cursor,objects=[],truncated=true;while(truncated&&objects.length<1000){const page=await env.SNAG_MEDIA.list({prefix,cursor,limit:1000});objects.push(...page.objects);truncated=page.truncated;cursor=page.cursor}const aggregate={version:3,date,deviceCount:objects.length,targets:{},hours:{},buckets:{},devices:[]};for(const item of objects){const obj=await env.SNAG_MEDIA.get(item.key);if(!obj)continue;try{const snap=JSON.parse(await obj.text());aggregate.devices.push({deviceId:snap.deviceId,device:snap.device||null,updatedAt:snap.updatedAt,targets:snap.targets||{},hours:snap.hours||{},buckets:snap.buckets||{}});mergeUsage(snap,aggregate)}catch{}}aggregate.generatedAt=new Date().toISOString();return Response.json(aggregate,{headers})}return new Response('Not found',{status:404,headers})}
+const plans={home_project:{name:'Home Project',mode:'payment',amount:3499,currency:'gbp'},pro:{name:'Snag Pro',mode:'subscription',amount:1200,currency:'gbp',interval:'month'}};
+async function stripe(path,env,{method='GET',body}={}){if(!env.STRIPE_SECRET_KEY)throw new Response('Payments are not configured yet',{status:503});const headers={Authorization:'Bearer '+env.STRIPE_SECRET_KEY};if(body)headers['Content-Type']='application/x-www-form-urlencoded';const r=await fetch('https://api.stripe.com/v1'+path,{method,headers,body});const data=await r.json();if(!r.ok)throw new Response(data?.error?.message||'Stripe request failed',{status:r.status});return data}
+async function patchBilling(projectId,identity,env,values){const fields={},masks=[];for(const [k,v] of Object.entries(values)){masks.push('updateMask.fieldPaths='+encodeURIComponent(k));fields[k]=typeof v==='boolean'?{booleanValue:v}:{stringValue:String(v)}}const r=await fetch(fsBase(env)+'/snag_projects/'+encodeURIComponent(projectId)+'?'+masks.join('&'),{method:'PATCH',headers:{Authorization:'Bearer '+identity.token,'Content-Type':'application/json'},body:JSON.stringify({fields})});if(!r.ok)throw new Response('Could not save billing entitlement',{status:r.status});return r.json()}
+async function billingRoute(request,env,headers,url){let identity;try{identity=await firebaseIdentity(request,env)}catch(e){if(e instanceof Response)return new Response(await e.text(),{status:e.status,headers});throw e}const projectId=url.searchParams.get('projectId');if(url.pathname==='/billing/entitlement'&&request.method==='GET'){if(!projectId)return new Response('projectId required',{status:400,headers});let doc;try{doc=await projectAccess(projectId,identity,env)}catch(e){if(e instanceof Response)return new Response(await e.text(),{status:e.status,headers});throw e}let status=field(doc,'billingStatus')||'free',plan=field(doc,'billingPlan')||'free',subscriptionId=field(doc,'stripeSubscriptionId');if(subscriptionId&&env.STRIPE_SECRET_KEY){try{const sub=await stripe('/subscriptions/'+encodeURIComponent(subscriptionId),env);status=['active','trialing'].includes(sub.status)?'active':sub.status}catch{}}return Response.json({ok:true,projectId,status,plan,paid:['paid','active','legacy'].includes(status),stripeConfigured:!!env.STRIPE_SECRET_KEY},{headers:{...headers,'Cache-Control':'no-store'}})}if(url.pathname==='/billing/checkout'&&request.method==='POST'){let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}const plan=plans[body.planId],pid=body.projectId;if(!plan||!pid)return new Response('Invalid plan or project',{status:400,headers});try{await projectAccess(pid,identity,env,{owner:true})}catch(e){if(e instanceof Response)return new Response(await e.text(),{status:e.status,headers});throw e}const base=String(body.returnUrl||'').startsWith('https://')?body.returnUrl:(env.ALLOWED_ORIGIN||'https://nirav2000.github.io')+'/snag/',sep=base.includes('?')?'&':'?',form=new URLSearchParams();form.set('mode',plan.mode);form.set('success_url',base+sep+'checkout=success&session_id={CHECKOUT_SESSION_ID}');form.set('cancel_url',base+sep+'checkout=cancel');form.set('line_items[0][quantity]','1');form.set('line_items[0][price_data][currency]',plan.currency);form.set('line_items[0][price_data][unit_amount]',String(plan.amount));form.set('line_items[0][price_data][product_data][name]','Snag · '+plan.name);if(plan.interval)form.set('line_items[0][price_data][recurring][interval]',plan.interval);form.set('metadata[projectId]',pid);form.set('metadata[uid]',identity.uid);form.set('metadata[planId]',body.planId);if(identity.user.email)form.set('customer_email',identity.user.email);try{const session=await stripe('/checkout/sessions',env,{method:'POST',body:form});return Response.json({ok:true,url:session.url,sessionId:session.id},{headers})}catch(e){if(e instanceof Response)return new Response(await e.text(),{status:e.status,headers});throw e}}if(url.pathname==='/billing/verify'&&request.method==='POST'){let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}if(!body.projectId||!body.sessionId)return new Response('Missing verification data',{status:400,headers});try{await projectAccess(body.projectId,identity,env,{owner:true});const session=await stripe('/checkout/sessions/'+encodeURIComponent(body.sessionId),env);if(session.metadata?.projectId!==body.projectId||session.metadata?.uid!==identity.uid)throw new Response('Checkout does not belong to this project',{status:403});const good=session.payment_status==='paid'||(session.mode==='subscription'&&session.status==='complete');if(!good)throw new Response('Payment is not complete',{status:409});const values={billingStatus:session.mode==='subscription'?'active':'paid',billingPlan:session.metadata?.planId||'home_project',stripeCheckoutSessionId:session.id,billingUpdatedAt:new Date().toISOString()};if(session.customer)values.stripeCustomerId=session.customer;if(session.subscription)values.stripeSubscriptionId=session.subscription;await patchBilling(body.projectId,identity,env,values);return Response.json({ok:true,...values},{headers})}catch(e){if(e instanceof Response)return new Response(await e.text(),{status:e.status,headers});throw e}}return new Response('Not found',{status:404,headers})}
+export default{async fetch(request,env){const origin=request.headers.get('Origin')||'',headers=cors(origin,env.ALLOWED_ORIGIN||'https://nirav2000.github.io');if(request.method==='OPTIONS')return new Response(null,{status:204,headers});const url=new URL(request.url),prefix='/objects/';if(url.pathname.startsWith('/usage/'))return usageRoute(request,env,headers,url);if(url.pathname.startsWith('/billing/'))return billingRoute(request,env,headers,url);if(url.pathname==='/health')return Response.json({ok:true,service:'snag-media-api',build:WORKER_BUILD,r2Bound:!!env.SNAG_MEDIA,usageTelemetry:true,appMonitor:false,stripeConfigured:!!env.STRIPE_SECRET_KEY,privateMedia:'v2'},{headers});if(!url.pathname.startsWith(prefix))return new Response('Not found',{status:404,headers});const key=url.pathname.slice(prefix.length).split('/').map(decodeURIComponent).join('/');if(!key||key.includes('..'))return new Response('Bad key',{status:400,headers});const projectId=projectFromKey(key);if(!projectId)return new Response('Bad project key',{status:400,headers});if(request.method==='PUT'){try{const identity=await firebaseIdentity(request,env);await projectAccess(projectId,identity,env)}catch(e){if(e instanceof Response)return new Response(await e.text(),{status:e.status,headers});throw e}const length=Number(request.headers.get('Content-Length')||0);if(length>50*1024*1024)return new Response('File too large',{status:413,headers});await env.SNAG_MEDIA.put(key,request.body,{httpMetadata:{contentType:request.headers.get('Content-Type')||'application/octet-stream'},customMetadata:{access:'private-v2',projectId}});return Response.json({key,url:url.origin+'/objects/'+key.split('/').map(encodeURIComponent).join('/'),private:true},{headers})}if(request.method==='GET'){const obj=await env.SNAG_MEDIA.get(key);if(!obj)return new Response('Not found',{status:404,headers});if(obj.customMetadata?.access==='private-v2'){try{const identity=await firebaseIdentity(request,env);await projectAccess(projectId,identity,env)}catch(e){if(e instanceof Response)return new Response(await e.text(),{status:e.status,headers});throw e}}const h=new Headers(headers);obj.writeHttpMetadata(h);h.set('etag',obj.httpEtag);h.set('Cache-Control',obj.customMetadata?.access==='private-v2'?'private, max-age=300':'public, max-age=86400');return new Response(obj.body,{headers:h})}if(request.method==='DELETE'){try{const identity=await firebaseIdentity(request,env);await projectAccess(projectId,identity,env,{owner:true});await env.SNAG_MEDIA.delete(key);return Response.json({ok:true,key},{headers})}catch(e){if(e instanceof Response)return new Response(await e.text(),{status:e.status,headers});throw e}}return new Response('Method not allowed',{status:405,headers})}};

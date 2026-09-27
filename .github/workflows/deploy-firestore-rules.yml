@@ -1,0 +1,31 @@
+name: Deploy Snag Firestore rules
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths: ["firestore.rules","firebase.json",".github/workflows/deploy-firestore-rules.yml"]
+permissions: { contents: read }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - name: Prepare Firebase credentials
+        id: creds
+        env:
+          FIREBASE_SERVICE_ACCOUNT_SNAG: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SNAG }}
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          if [ -n "${FIREBASE_SERVICE_ACCOUNT_SNAG:-}" ]; then printf '%s' "$FIREBASE_SERVICE_ACCOUNT_SNAG" > "$RUNNER_TEMP/firebase-sa.json"; echo "mode=service-account" >> "$GITHUB_OUTPUT"; elif [ -n "${FIREBASE_TOKEN:-}" ]; then echo "mode=token" >> "$GITHUB_OUTPUT"; else echo "mode=none" >> "$GITHUB_OUTPUT"; echo "::warning::No Firebase deploy credential configured; rules committed but not deployed."; fi
+      - run: npm install --global firebase-tools
+        if: steps.creds.outputs.mode != 'none'
+      - name: Deploy with service account
+        if: steps.creds.outputs.mode == 'service-account'
+        env: { GOOGLE_APPLICATION_CREDENTIALS: "${{ runner.temp }}/firebase-sa.json" }
+        run: firebase deploy --only firestore:rules --project snag-509418 --non-interactive
+      - name: Deploy with Firebase token
+        if: steps.creds.outputs.mode == 'token'
+        env: { FIREBASE_TOKEN: "${{ secrets.FIREBASE_TOKEN }}" }
+        run: firebase deploy --only firestore:rules --project snag-509418 --non-interactive --token "$FIREBASE_TOKEN"
