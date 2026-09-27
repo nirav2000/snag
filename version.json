@@ -1,9 +1,9 @@
 {
-  "build": "2026.09.27.1715",
-  "publishedAt": "2026-09-27T17:15:00+01:00",
+  "build": "2026.09.27.1805",
+  "publishedAt": "2026-09-27T18:05:00+01:00",
   "channel": "release",
   "stableRef": "stable",
-  "stableBuild": "2026.09.27.1715",
+  "stableBuild": "2026.09.27.1805",
   "features": [
     "shared-account-v1",
     "shared-privacy-v1",
@@ -18,6 +18,9 @@
     "shared-privacy-v2",
     "telemetry-default-on-v1",
     "developer-telemetry-controls-v1",
-    "shared-worker-deploy-bridge-v1"
+    "shared-worker-deploy-bridge-v1",
+    "ipad-visual-viewport-fix-v1",
+    "home-nav-state-fix-v1",
+    "render-resilience-v1"
   ]
 }
