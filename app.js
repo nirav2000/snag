@@ -61,9 +61,12 @@ async function applySnagAccess(s,{newRecord=false}={}){
 }
 async function ensureAccountRemote(){
   if(!firebase?.auth?.currentUser)return null;
-  const {fsMod,db,auth}=firebase,id=stableAccountId(),ref=fsMod.doc(db,'snag_accounts',id),snap=await fsMod.getDoc(ref);
-  if(!snap.exists())await fsMod.setDoc(ref,{accountId:id,ownerUid:auth.currentUser.uid,ownerSnagUserId:snagUserId(),createdAt:now(),updatedAt:now(),plan:'free'});
-  else if(snap.data().ownerUid===auth.currentUser.uid)await fsMod.setDoc(ref,{updatedAt:now()},{merge:true});
+  const {fsMod,db,auth}=firebase,id=stableAccountId(),ref=fsMod.doc(db,'snag_accounts',id);
+  try{
+    const snap=await fsMod.getDoc(ref);
+    if(!snap.exists())await fsMod.setDoc(ref,{accountId:id,ownerUid:auth.currentUser.uid,ownerSnagUserId:snagUserId(),createdAt:now(),updatedAt:now(),plan:'free'});
+    else if(snap.data().ownerUid===auth.currentUser.uid)await fsMod.setDoc(ref,{updatedAt:now()},{merge:true});
+  }catch(e){console.warn('Account record is waiting for the release security rules',e)}
   return id;
 }
 async function upgradeProjectAccessModel(){
@@ -181,7 +184,7 @@ function render(){renderProject();renderStats();renderFilters();renderRecentActi
 function renderProject(){const p=project();if(!p)return;const cover=$('projectCover');if(cover){cover.classList.toggle('hidden',!p.coverImage?.url);cover.innerHTML=p.coverImage?.url?`<img ${mediaAttr(p.coverImage)} alt="Project cover">`:'';const removeCover=$('removeProjectCoverButton');if(removeCover)removeCover.classList.toggle('hidden',!p.coverImage?.url);}$('projectName').textContent=p.name;$('projectAddress').textContent=p.address||'No address/context';$('projectTypeLabel').textContent=`${p.type.toUpperCase()} PROJECT`;$('profilePill').textContent=`${profile.role} · ${profile.name}`;const live=cloudStatus.state==='connected',pill=$('syncPill');pill.className=`sync-pill ${live?'connected':'local'}`;pill.innerHTML=`<span class="dot"></span><span>${live?'Live sync':cloudStatus.state==='error'?'Cloud error':'Connecting…'}</span>`;pill.title=cloudStatus.message||'';}
 function renderStats(){const s=visibleProjectSnags(),active=s.filter(x=>x.status!=='resolved'&&!x.archived),progress=s.filter(x=>x.status==='in-progress'&&!x.archived),review=s.filter(x=>x.status==='review'&&!x.archived),resolved=s.filter(x=>x.status==='resolved');$('statActive').textContent=active.length;$('statProgress').textContent=progress.length;$('statReview').textContent=review.length;$('statResolved').textContent=resolved.length;if($('heroUnresolved'))$('heroUnresolved').textContent=active.length;if($('heroRequireAction'))$('heroRequireAction').textContent=s.filter(x=>['open','review'].includes(x.status)&&!x.archived).length;if($('heroRecentlyUpdated')){const cutoff=Date.now()-86400000;$('heroRecentlyUpdated').textContent=s.filter(x=>new Date(x.updatedAt).getTime()>=cutoff).length;}document.querySelectorAll('.stat-card').forEach(x=>x.classList.toggle('active',x.dataset.statFilter===view.status));}
 function renderFilters(){let n=0;if(view.category!=='all')n++;if(view.priority!=='all')n++;if(view.archived)n++;$('filterCount').textContent=n?`(${n})`:'';$('categoryFilter').value=view.category;$('priorityFilter').value=view.priority;$('archiveFilter').checked=view.archived;$('sortSelect').value=view.sort;}
-function thumbHtml(s){const m=s.media?.[0];if(!m)return `<div class="snag-thumb">${s.category==='App / software'?'⌘':s.category==='Business process'?'⇄':'⌂'}</div>`;if(m.type?.startsWith('image'))return `<div class="snag-thumb"><img ${mediaAttr(m)} alt=""></div>`;if(m.type?.startsWith('video'))return `<div class="snag-thumb"><video ${mediaAttr(m)} muted playsinline></video>`;return '<div class="snag-thumb">♪</div>';}
+function thumbHtml(s){const m=s.media?.[0];if(!m)return `<div class="snag-thumb">${s.category==='App / software'?'⌘':s.category==='Business process'?'⇄':'⌂'}</div>`;if(m.type?.startsWith('image'))return `<div class="snag-thumb"><img ${mediaAttr(m)} alt=""></div>`;if(m.type?.startsWith('video'))return `<div class="snag-thumb"><video ${mediaAttr(m)} muted playsinline></video></div>`;return '<div class="snag-thumb">♪</div>';}
 function activityThumb(s,u){const m=u?.media?.find(x=>x.type?.startsWith('image'))||s.media?.find(x=>x.type?.startsWith('image'));return m?`<div class="activity-thumb"><img ${mediaAttr(m)} alt=""></div>`:'<div class="activity-thumb activity-placeholder">⌂</div>';}
 function activityKind(item){
   if(!item.u)return 'new-snag';
