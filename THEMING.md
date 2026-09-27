@@ -25,3 +25,9 @@ Examples: `theme-classic.css`, `theme-coral.css`, `theme-dark.css`, `theme-edito
 `welcome.html` uses `welcome-v4.css` because the public landing page has different layout needs from the application. It uses `snag-mark-v4.svg`.
 
 The current landing-page direction is based on option 4: split hero, before/after issue imagery, four equal process cards, a dark multi-use strip and staged product access rather than invented prices.
+
+## Photographic media
+
+The public landing page remains HTML/CSS-driven. Photographs are individual responsive assets, not a single screenshot of the page. Use-case photographs use `object-fit: cover`, and the hero composition reflows at tablet and phone breakpoints. This keeps text, buttons, app mock-ups and pricing accessible and independently editable.
+
+The current landing page uses remotely hosted Unsplash imagery for the photographic layers. If Snag moves to production hosting, these assets should be copied into the Snag media/CDN bucket so the page has no third-party image dependency.
