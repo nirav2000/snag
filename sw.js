@@ -1,6 +1,6 @@
-const CACHE='snag-static-v43';
-const BUILD='2026.09.28.0743';
-const STATIC=['./styles.css?v='+BUILD,'./notes.css?v='+BUILD,'./theme-coral.css?v='+BUILD,'./welcome-v4.css?v='+BUILD,'./pricing.css?v='+BUILD,'./assets/hero-before.jpg','./assets/hero-after.jpg','./assets/hero-phone-wall.jpg','./manifest.webmanifest','./icon.svg'];
+const CACHE='snag-static-v44';
+const BUILD='2026.09.28.1053';
+const STATIC=['./styles.css?v='+BUILD,'./notes.css?v='+BUILD,'./theme-coral.css?v='+BUILD,'./welcome-v4.css?v='+BUILD,'./pricing.css?v='+BUILD,'./assets/hero-before.jpg','./assets/hero-after.jpg','./assets/hero-phone-wall.jpg','./assets/process-capture.jpg','./assets/process-assign.jpg','./assets/process-track.jpg','./assets/process-resolve.jpg','./manifest.webmanifest','./icon.svg'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(STATIC)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{
