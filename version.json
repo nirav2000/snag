@@ -1,9 +1,9 @@
 {
-  "build": "2026.09.28.0743",
-  "publishedAt": "2026-09-28T07:43:00+01:00",
+  "build": "2026.09.28.1053",
+  "publishedAt": "2026-09-28T10:53:00+01:00",
   "channel": "release",
   "stableRef": "stable",
-  "stableBuild": "2026.09.28.0743",
+  "stableBuild": "2026.09.28.1053",
   "features": [
     "shared-account-v1",
     "shared-privacy-v1",
@@ -27,6 +27,7 @@
     "hero-evidence-media-v1",
     "welcome-simplified-v1",
     "process-cards-complete-v1",
-    "pricing-page-v1"
+    "pricing-page-v1",
+    "process-rich-artwork-v2"
   ]
 }
