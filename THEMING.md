@@ -35,3 +35,7 @@ The current landing page uses remotely hosted Unsplash imagery for the photograp
 ## Dedicated pricing page
 
 From build 2026.09.28.0743, pricing content is removed from the main welcome page and lives in `pricing.html` with `pricing.css`. This keeps the landing page focused on product understanding and moves commercial detail into a separate destination.
+
+## Rich process artwork
+
+From build 2026.09.28.1053, the four “How it works” cards use dedicated image assets in `assets/process-*.jpg` rather than simplified CSS mock-ups. The surrounding card structure and responsive layout remain HTML/CSS so the artwork can be swapped without restructuring the page.
