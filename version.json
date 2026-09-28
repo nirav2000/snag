@@ -1,9 +1,9 @@
 {
-  "build": "2026.09.27.2107",
-  "publishedAt": "2026-09-27T21:07:00+01:00",
+  "build": "2026.09.28.0743",
+  "publishedAt": "2026-09-28T07:43:00+01:00",
   "channel": "release",
   "stableRef": "stable",
-  "stableBuild": "2026.09.27.2107",
+  "stableBuild": "2026.09.28.0743",
   "features": [
     "shared-account-v1",
     "shared-privacy-v1",
@@ -24,6 +24,9 @@
     "render-resilience-v1",
     "landing-responsive-media-v2",
     "coral-theme-v2",
-    "hero-evidence-media-v1"
+    "hero-evidence-media-v1",
+    "welcome-simplified-v1",
+    "process-cards-complete-v1",
+    "pricing-page-v1"
   ]
 }
