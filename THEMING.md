@@ -31,3 +31,7 @@ The current landing-page direction is based on option 4: split hero, before/afte
 The public landing page remains HTML/CSS-driven. Photographs are individual responsive assets, not a single screenshot of the page. Use-case photographs use `object-fit: cover`, and the hero composition reflows at tablet and phone breakpoints. This keeps text, buttons, app mock-ups and pricing accessible and independently editable.
 
 The current landing page uses remotely hosted Unsplash imagery for the photographic layers. If Snag moves to production hosting, these assets should be copied into the Snag media/CDN bucket so the page has no third-party image dependency.
+
+## Dedicated pricing page
+
+From build 2026.09.28.0743, pricing content is removed from the main welcome page and lives in `pricing.html` with `pricing.css`. This keeps the landing page focused on product understanding and moves commercial detail into a separate destination.
