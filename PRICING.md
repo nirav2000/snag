@@ -10,7 +10,7 @@ The upgrade prompt should therefore be tied to a meaningful value event rather t
 
 ## Current implementation
 
-At build 2026.09.28.0743, the commercial gate in `release.js` still reflects the earlier experimental rules:
+At build 2026.09.28.1053, the commercial gate in `release.js` still reflects the earlier experimental rules:
 
 - free users can create up to **5 snags**
 - sharing a project requires a paid Home Project licence
