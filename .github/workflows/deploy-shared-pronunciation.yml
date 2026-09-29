@@ -31,7 +31,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler deploy -c wrangler-pronunciation.jsonc
-      - name: Check OpenAI credential
+      - name: Check optional OpenAI credential
         id: openai
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -40,7 +40,7 @@ jobs:
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::OPENAI_API_KEY is not configured in the Snag credential-host repository. Generated pronunciation will fall back to the device voice until it is added."
+            echo "::notice::OPENAI_API_KEY is not configured. The worker will use Cloudflare Workers AI multilingual TTS by default."
           fi
       - name: Configure OpenAI Worker secret
         if: steps.openai.outputs.available == 'true'
@@ -51,5 +51,11 @@ jobs:
         run: printf '%s' "$OPENAI_API_KEY" | npx wrangler secret put OPENAI_API_KEY -c wrangler-pronunciation.jsonc
       - name: Verify worker
         run: |
-          curl --fail --silent --show-error 'https://apps-pronunciation-api.nirav2000-github.workers.dev/health'
-          echo
+          for i in 1 2 3 4 5 6; do
+            if curl --fail --silent --show-error 'https://apps-pronunciation-api.nirav2000-github.workers.dev/health'; then
+              echo
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
