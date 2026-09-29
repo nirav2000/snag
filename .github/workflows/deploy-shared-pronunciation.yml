@@ -59,3 +59,8 @@ jobs:
             sleep 5
           done
           exit 1
+      - name: Generate French reference smoke test
+        run: |
+          curl --fail --silent --show-error             -H 'Origin: https://nirav2000.github.io'             -H 'Content-Type: application/json'             --data '{"targetText":"Bonjour, comment allez-vous ?","lang":"fr-FR"}'             'https://apps-pronunciation-api.nirav2000-github.workers.dev/reference'             --output /tmp/pronunciation-reference
+          test -s /tmp/pronunciation-reference
+          echo "Generated reference bytes: $(wc -c < /tmp/pronunciation-reference)"
