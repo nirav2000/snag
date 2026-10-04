@@ -33,7 +33,7 @@ async function notificationMember(projectId,uid,identity,env){
  return{uid,role:String(docValue(doc,'role')||'member'),admin:docValue(doc,'admin')===true,owner:false,name:String(docValue(doc,'name')||'')};
 }
 function defaultNotificationPolicy(ownerUid=''){
- return{version:1,ownerUid,allowedChannels:{in_app:true,web_push:true,email:false,telegram:false,whatsapp:false,signal:false,slack:false,discord:false,sms:false,ios_push:false},allowedEvents:{'snag.created':true,'snag.updated':true,'snag.comment_added':true,'snag.status_changed':true},roleChannels:{},roleEvents:{},userChannels:{},userEvents:{},mandatoryEvents:{},updatedAt:null};
+ return{version:1,ownerUid,billingOwnerUid:ownerUid,allowedChannels:{in_app:true,web_push:true,email:false,telegram:false,whatsapp:false,signal:false,slack:false,discord:false,sms:false,ios_push:false},allowedEvents:{'snag.created':true,'snag.updated':true,'snag.comment_added':true,'snag.status_changed':true},roleChannels:{},roleEvents:{},userChannels:{},userEvents:{},mandatoryEvents:{},updatedAt:null};
 }
 function defaultNotificationPreferences(identity){
  return{version:1,channels:{in_app:true,web_push:true},events:{'snag.created':true,'snag.updated':true,'snag.comment_added':true,'snag.status_changed':true},destinations:{email:String(identity?.user?.email||'')},updatedAt:null};
@@ -130,7 +130,7 @@ async function notificationRoute(request,env,headers,url){
    if(identity.uid!==ownerUid)return new Response('Owner access required',{status:403,headers});
    const current=await notificationPolicy(projectId,ownerUid,env),next={
     ...current,
-    ownerUid,
+    ownerUid,billingOwnerUid:ownerUid,
     allowedChannels:{...current.allowedChannels,...(body.policy?.allowedChannels||{})},
     allowedEvents:{...current.allowedEvents,...(body.policy?.allowedEvents||{})},
     roleChannels:{...current.roleChannels,...(body.policy?.roleChannels||{})},
