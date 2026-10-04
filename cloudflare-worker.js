@@ -147,10 +147,19 @@ async function notificationRoute(request,env,headers,url){
    const targetUid=String(body.targetUid||identity.uid).slice(0,180);
    if(targetUid!==identity.uid&&identity.uid!==ownerUid)return new Response('Owner access required',{status:403,headers});
    const target=targetUid===identity.uid?actor:await notificationMember(projectId,targetUid,identity,env);
-   const current=await notificationPreferences(projectId,targetUid,targetUid===identity.uid?identity:null,env),input=body.preferences||{},next={
+   const current=await notificationPreferences(projectId,targetUid,targetUid===identity.uid?identity:null,env),input=body.preferences||{},policy=await notificationPolicy(projectId,ownerUid,env);
+   const channels={...current.channels},events={...current.events};
+   for(const [key,value] of Object.entries(input.channels||{})){
+    if(identity.uid===ownerUid||notificationAllowed(policy,target,'channel',key))channels[key]=value===true;
+   }
+   for(const [key,value] of Object.entries(input.events||{})){
+    if(identity.uid===ownerUid||notificationAllowed(policy,target,'event',key))events[key]=value!==false;
+   }
+   for(const [key,value] of Object.entries(policy.mandatoryEvents||{}))if(value===true&&notificationAllowed(policy,target,'event',key))events[key]=true;
+   const next={
     version:1,uid:targetUid,role:target.role,
-    channels:{...current.channels,...(input.channels||{})},
-    events:{...current.events,...(input.events||{})},
+    channels,
+    events,
     destinations:{...current.destinations,...(input.destinations||{})},
     updatedAt:new Date().toISOString(),updatedBy:identity.uid
    };
