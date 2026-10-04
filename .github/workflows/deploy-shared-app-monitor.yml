@@ -80,3 +80,11 @@ jobs:
           echo
           curl --fail --silent --show-error -H 'Origin: https://nirav2000.github.io' 'https://apps-monitor-api.nirav2000-github.workers.dev/app-monitor/developer-config?app=Snag'
           echo
+
+      - name: Verify notification route exists
+        run: |
+          CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Origin: https://nirav2000.github.io' 'https://apps-monitor-api.nirav2000-github.workers.dev/app-monitor/notifications/state')"
+          if [ "$CODE" != "401" ]; then
+            echo "::error::Expected App Monitor notification route to exist and require authentication (401), got $CODE"
+            exit 1
+          fi
