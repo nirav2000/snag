@@ -204,3 +204,25 @@ body{overflow-x:hidden}
 .fab-plus{bottom:calc(88px + var(--snag-visual-bottom,0px) + env(safe-area-inset-bottom))!important}
 .handover-home,.snags-view,.rooms-view{min-height:0}
 @media(max-width:480px){.fab-plus{bottom:calc(92px + var(--snag-visual-bottom,0px) + env(safe-area-inset-bottom))!important}}
+
+
+/* Shared notification settings */
+.notification-settings-grid{display:grid;gap:14px}
+.notification-setting-group{display:grid;gap:8px}
+.notification-setting-group h4{margin:4px 0;font-size:.92rem}
+.notification-setting-row,.notification-owner-row,.notification-inbox-item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border:1px solid var(--border,#dfe5ea);border-radius:14px;background:var(--surface,#fff)}
+.notification-setting-row>span,.notification-owner-row>div{display:grid;gap:3px;min-width:0}
+.notification-setting-row small,.notification-owner-row small,.notification-inbox-item small{color:var(--muted,#697586);font-size:.78rem}
+.notification-setting-row.disabled{opacity:.7}
+.notification-setting-row input[type="checkbox"],.notification-owner-row input[type="checkbox"]{width:18px;height:18px;flex:0 0 auto}
+.notification-owner-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto}
+.notification-owner-row label{display:flex;align-items:center;gap:6px;font-size:.82rem;white-space:nowrap}
+.notification-destinations{margin-top:14px}
+.notification-inbox-list{display:grid;gap:10px;margin-top:14px}
+.notification-inbox-item{align-items:flex-start}
+.notification-inbox-item.unread{border-color:#87a8c6;background:#f7fbff}
+.notification-inbox-item p{margin:4px 0 3px;color:var(--muted,#697586)}
+@media(max-width:640px){
+  .notification-owner-row{grid-template-columns:1fr 1fr}
+  .notification-owner-row>div{grid-column:1/-1}
+}
