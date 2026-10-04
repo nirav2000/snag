@@ -45,7 +45,9 @@ function notificationAllowed(policy,member,kind,key){
  const global=kind==='channel'?policy.allowedChannels:policy.allowedEvents;
  const roleMap=(kind==='channel'?policy.roleChannels:policy.roleEvents)?.[member.role];
  const userMap=(kind==='channel'?policy.userChannels:policy.userEvents)?.[member.uid];
- return setting(global,key,kind==='channel'?key==='in_app':true)&&setting(roleMap,key,true)&&setting(userMap,key,true);
+ if(userMap&&Object.prototype.hasOwnProperty.call(userMap,key))return userMap[key]!==false;
+ if(roleMap&&Object.prototype.hasOwnProperty.call(roleMap,key))return roleMap[key]!==false;
+ return setting(global,key,kind==='channel'?key==='in_app':true);
 }
 function effectiveNotification(policy,prefs,member,eventType){
  const channels={};
