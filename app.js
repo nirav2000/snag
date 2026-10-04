@@ -8,7 +8,6 @@ const fmt=iso=>{const d=new Date(iso);if(!iso||Number.isNaN(d.getTime()))return 
 const statusLabel={'open':'Open','in-progress':'In progress','review':'Needs review','resolved':'Resolved'};
 const priorityRank={Urgent:0,High:1,Normal:2,Low:3};
 let firebase=null, unsubscribe=null, privateNotesUnsubscribe=null, seenUnsubscribe=null, currentMember=null, firebaseRun=0, cloudDiag=[], seenState={}, currentNav='home', pendingFiles=[], detailId=null, mediaRecorder=null, voiceChunks=[], cameraTestStream=null, cameraTestFacing='environment', cloudStatus={state:'starting',message:'Starting Firebase…'}, latestBuild=null, annotationState={source:null,mode:null,index:null,updateId:null,history:[],colour:'#ef4444',image:null}, legacyBridgeFrame=null, legacyBridgeReadyPromise=null;
-let notificationOwnState=null,notificationTargetState=null,notificationMembers=[],notificationInbox=[],notificationInboxUnread=0,notificationInboxLoaded=false,notificationSelectedMemberUid='';
 let profile=JSON.parse(localStorage.getItem(LS.profile)||'null')||{name:'Me',role:'Client'};
 let state=loadState();
 const launchUrl=new URL(location.href);
@@ -19,24 +18,6 @@ let selectedProjectId=launchProjectId||state.selectedProjectId||state.projects[0
 if(!launchProjectId&&!state.projects.some(p=>p.id===selectedProjectId)) selectedProjectId=state.projects[0]?.id;
 if(state.projects.some(p=>p.id===selectedProjectId)){state.selectedProjectId=selectedProjectId;saveState();}
 let view={status:'active',search:'',category:'all',priority:'all',archived:false,sort:'updated'};
-const SNAG_NOTIFICATION_CHANNELS={
-  in_app:{label:'In app',cost:'free'},
-  web_push:{label:'Browser push',cost:'free'},
-  email:{label:'Email',cost:'provider'},
-  telegram:{label:'Telegram',cost:'provider'},
-  whatsapp:{label:'WhatsApp',cost:'metered'},
-  signal:{label:'Signal',cost:'provider'},
-  slack:{label:'Slack',cost:'provider'},
-  discord:{label:'Discord',cost:'provider'},
-  sms:{label:'SMS',cost:'metered'},
-  ios_push:{label:'iPhone / iPad push',cost:'provider'}
-};
-const SNAG_NOTIFICATION_EVENTS={
-  'snag.created':'New snag added',
-  'snag.updated':'Snag details changed',
-  'snag.comment_added':'New comment or progress update',
-  'snag.status_changed':'Snag status changed'
-};
 const $=id=>document.getElementById(id);
 function loadState(){
   const saved=JSON.parse(localStorage.getItem(LS.state)||'null');
@@ -163,7 +144,7 @@ async function markSnagSeen(snagId){
   try{const {fsMod,db,auth}=firebase;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'members',auth.currentUser.uid,'seen',snagId),{snagId,lastSeenAt:at,updatedAt:now()},{merge:true});}catch(e){console.warn('Could not save seen state',e)}
 }
 function renderUnreadIndicators(){
-  const snagUnread=unreadSnags().length,n=notificationInboxLoaded?Math.max(snagUnread,notificationInboxUnread):snagUnread;
+  const n=unreadSnags().length;
   if($('notificationBadge')){$('notificationBadge').textContent=n;$('notificationBadge').classList.toggle('hidden',n===0)}
   if($('homeNavDot'))$('homeNavDot').classList.toggle('hidden',n===0);
   if($('snagsNavDot'))$('snagsNavDot').classList.toggle('hidden',n===0);
@@ -243,7 +224,7 @@ function renderList(){const list=getFiltered();const titles={active:'Active snag
 function renderProjects(){$('projectList').innerHTML=state.projects.map(p=>`<div class="project-option ${p.id===selectedProjectId?'current':''}"><button type="button" data-project="${p.id}"><strong>${escapeHtml(p.name)}</strong><div class="subtle">${escapeHtml(p.address||p.type)}</div></button><span>${projectSnagCount(p.id)}</span></div>`).join('');$('projectList').querySelectorAll('[data-project]').forEach(b=>b.onclick=()=>selectProject(b.dataset.project));}
 function projectSnagCount(pid){return state.snags.filter(s=>s.projectId===pid&&s.status!=='resolved').length;}
 function selectProject(id){selectedProjectId=id;state.selectedProjectId=id;saveState();const u=new URL(location.href);u.searchParams.set('project',id);history.replaceState({},'',u);$('projectDialog').close();if(firebase) subscribeFirebase();render();}
-function renderSettings(){const p=project();if($('guidesEnabledInput'))$('guidesEnabledInput').checked=guidesEnabled();if($('projectLocationsInput'))$('projectLocationsInput').value=(p?.locations||[]).join('\n');if($('projectAssigneesInput'))$('projectAssigneesInput').value=(p?.assignees||[]).join('\n');$('profileNameInput').value=profile.name;$('profileRoleInput').value=profile.role;const cfg=window.SNAG_FIREBASE_CONFIG||null;if($('firebaseConfigInput')){$('firebaseConfigInput').value=cfg?JSON.stringify(cfg,null,2):'';$('firebaseConfigInput').readOnly=true}const user=firebase?.auth?.currentUser,live=!!user;$('firebaseStatusTitle').textContent=live?'Connected':'Local mode';$('firebaseBadge').className=`badge ${live?'good':'neutral'}`;$('firebaseBadge').textContent=live?'Connected':'Not signed in';$('shareWarning').classList.toggle('hidden',live);if($('accountProtectionStatus')){$('accountProtectionStatus').textContent=!user?'Cloud connection required':user.isAnonymous?'Temporary access on this device':'Protected account · '+(user.email||user.providerData?.[0]?.providerId||'signed in');$('accountProtectionStatus').className=user&&!user.isAnonymous?'notice success':'notice'}if($('protectAccountFields'))$('protectAccountFields').classList.toggle('hidden',!!user&&!user.isAnonymous);if($('protectedAccountActions'))$('protectedAccountActions').classList.toggle('hidden',!user||user.isAnonymous);renderNotificationSettingsUI();}
+function renderSettings(){const p=project();if($('guidesEnabledInput'))$('guidesEnabledInput').checked=guidesEnabled();if($('projectLocationsInput'))$('projectLocationsInput').value=(p?.locations||[]).join('\n');if($('projectAssigneesInput'))$('projectAssigneesInput').value=(p?.assignees||[]).join('\n');$('profileNameInput').value=profile.name;$('profileRoleInput').value=profile.role;const cfg=window.SNAG_FIREBASE_CONFIG||null;if($('firebaseConfigInput')){$('firebaseConfigInput').value=cfg?JSON.stringify(cfg,null,2):'';$('firebaseConfigInput').readOnly=true}const user=firebase?.auth?.currentUser,live=!!user;$('firebaseStatusTitle').textContent=live?'Connected':'Local mode';$('firebaseBadge').className=`badge ${live?'good':'neutral'}`;$('firebaseBadge').textContent=live?'Connected':'Not signed in';$('shareWarning').classList.toggle('hidden',live);if($('accountProtectionStatus')){$('accountProtectionStatus').textContent=!user?'Cloud connection required':user.isAnonymous?'Temporary access on this device':'Protected account · '+(user.email||user.providerData?.[0]?.providerId||'signed in');$('accountProtectionStatus').className=user&&!user.isAnonymous?'notice success':'notice'}if($('protectAccountFields'))$('protectAccountFields').classList.toggle('hidden',!!user&&!user.isAnonymous);if($('protectedAccountActions'))$('protectedAccountActions').classList.toggle('hidden',!user||user.isAnonymous);}
 function openDetail(id){detailId=id;const s=state.snags.find(x=>x.id===id);if(!s)return;markSnagSeen(id);$('detailRef').textContent=s.ref;$('detailTitle').textContent=s.title;renderDetail(s);$('detailDrawer').classList.remove('hidden');$('backdrop').classList.remove('hidden');$('detailDrawer').setAttribute('aria-hidden','false');queueMicrotask(()=>hydratePrivateMedia($('detailDrawer')));}
 function closeDetail(){$('detailDrawer').classList.add('hidden');$('backdrop').classList.add('hidden');$('detailDrawer').setAttribute('aria-hidden','true');detailId=null;}
 function mediaHtml(items=[],context='snag'){if(!items.length)return'';return `<div class="media-grid">${items.map((m,i)=>m.type?.startsWith('image')?`<div class="media-item media-image-card"><a ${mediaAttr(m,'href')} target="_blank"><img ${mediaAttr(m)} alt="Attachment"></a><div class="media-version-actions"><button type="button" data-annotate-media="${i}" data-media-context="${escapeHtml(context)}">✎ Mark up</button>${m.originalUrl?`<a ${mediaAttr({url:m.originalUrl,key:m.originalKey,storage:m.storage},'href')} target="_blank">View original</a>`:''}</div></div>`:m.type?.startsWith('video')?`<div class="media-item"><video ${mediaAttr(m)} controls playsinline></video></div>`:m.type?.startsWith('audio')?`<div class="media-item"><audio ${mediaAttr(m)} controls></audio></div>`:`<a class="media-item" ${mediaAttr(m,'href')} target="_blank">Open file</a>`).join('')}</div>`;}
@@ -295,8 +276,8 @@ async function saveSnagEdit(e){
   const before={title:s.title,priority:s.priority,category:s.category,location:s.location,assignee:s.assignee,description:s.description,outcome:s.outcome},after={title:$('editSnagTitle').value.trim()||s.title,priority:$('editSnagPriority').value,category:$('editSnagCategory').value,location:$('editSnagLocation').value.trim(),assignee:$('editSnagAssignee').value.trim(),description:$('editSnagDescription').value.trim(),outcome:$('editSnagOutcome').value.trim()};if(!isAdmin())after.assignee=before.assignee;
   const labels={title:'Title',priority:'Priority',category:'Category',location:'Room',assignee:'Assigned to',description:'Description',outcome:'Requested outcome'},changes=Object.keys(after).filter(k=>String(before[k]||'')!==String(after[k]||'')).map(k=>`${labels[k]} changed`);
   Object.assign(s,after);if(isAdmin()){const match=await resolveAssigneeIdentity(s.assignee);s.assigneeId=match?.uid||match?.id||null;const participants=new Set((s.participantUids||[]).filter(Boolean));if(s.createdByUid)participants.add(s.createdByUid);if(s.assigneeId)participants.add(s.assigneeId);s.participantUids=[...participants]}
-  s.updatedAt=now();let editUpdate=null;if(changes.length){s.updates=s.updates||[];editUpdate={id:uid(),type:'edit',text:changes.join(' · '),author:profile.name,authorUid:firebase?.auth?.currentUser?.uid||null,role:profile.role,createdAt:s.updatedAt,media:[]};s.updates.push(editUpdate);}
-  markDirty(s.id);saveState();if(firebase){await writeSnag(s);clearDirty(s.id);if(editUpdate)await emitSnagNotification('snag.updated',s,'snag.updated:'+editUpdate.id);}await markSnagSeen(id);$('editSnagDialog').close();render();openDetail(id);toast(changes.length?'Snag updated':'No changes');
+  s.updatedAt=now();if(changes.length){s.updates=s.updates||[];s.updates.push({id:uid(),type:'edit',text:changes.join(' · '),author:profile.name,authorUid:firebase?.auth?.currentUser?.uid||null,role:profile.role,createdAt:s.updatedAt,media:[]});}
+  markDirty(s.id);saveState();if(firebase){await writeSnag(s);clearDirty(s.id);}await markSnagSeen(id);$('editSnagDialog').close();render();openDetail(id);toast(changes.length?'Snag updated':'No changes');
 }
 function guideKey(kind){return `${LS.guide}:${selectedProjectId}:${kind}`;}
 function showGuide(kind='owner'){const contractor=kind==='contractor'||(!isAdmin()&&currentMember?.role==='contractor');$('guideTitle').textContent=contractor?'Your quick guide':'Snag quick guide';$('guideContent').innerHTML=contractor?`<div class="guide-step"><b>1</b><div><strong>Check what is assigned to you</strong><p>Red dots mean something changed since you last looked.</p></div></div><div class="guide-step"><b>2</b><div><strong>Reply on the snag</strong><p>Keep questions and updates in Conversation & progress.</p></div></div><div class="guide-step"><b>3</b><div><strong>Add progress and after photos</strong><p>Tap Add photo and choose Progress or After / completed.</p></div></div><div class="guide-step"><b>4</b><div><strong>Update status</strong><p>Move work to In progress and Needs review when ready to check.</p></div></div>`:`<div class="guide-step"><b>+</b><div><strong>Add a snag</strong><p>Take a photo first if that is quickest. Details can be edited later.</p></div></div><div class="guide-step"><b>●</b><div><strong>Look for new activity</strong><p>Dots show changes you have not seen.</p></div></div><div class="guide-step"><b>✎</b><div><strong>Edit at any time</strong><p>Change room, assignee, priority, description or requested outcome.</p></div></div><div class="guide-step"><b>📷</b><div><strong>Keep the evidence</strong><p>Add Progress and After photos. Mark up a copy while retaining the original.</p></div></div>`;$('guideDialog').dataset.kind=contractor?'contractor':'owner';$('guideDialog').showModal();}
@@ -341,224 +322,6 @@ async function prepareMedia(files,pathPrefix){
   }
   return result;
 }
-async function snagNotificationRequest(path,{method='GET',body}={}){
-  if(!firebase?.auth?.currentUser||!window.SNAG_R2_API)return null;
-  try{
-    const token=await firebase.auth.currentUser.getIdToken();
-    const sep=path.includes('?')?'&':'?';
-    const url=window.SNAG_R2_API.replace(/\/$/,'')+path+sep+'projectId='+encodeURIComponent(selectedProjectId);
-    const response=await withTimeout(fetch(url,{
-      method,
-      headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},
-      body:body?JSON.stringify(body):undefined,
-      cache:'no-store'
-    }),6500,'Notification service');
-    if(!response.ok)throw new Error('Notification service '+response.status);
-    return response.json();
-  }catch(error){
-    console.warn('Snag notification request failed',error);
-    return null;
-  }
-}
-async function emitSnagNotification(type,snag,eventId){
-  if(!snag?.id||!firebase?.auth?.currentUser)return null;
-  const projectUrl=new URL(location.origin+location.pathname);
-  projectUrl.searchParams.set('project',selectedProjectId);
-  return snagNotificationRequest('/notifications/event',{
-    method:'POST',
-    body:{type,snagId:snag.id,eventId:eventId||'',url:projectUrl.toString()}
-  });
-}
-
-function notificationPolicyAllowed(state,kind,key){
-  const policy=state?.policy||{},target=state?.target||{},uid=target.uid||'',role=target.role||'member';
-  if(target.owner===true||role==='owner')return true;
-  const global=kind==='channel'?policy.allowedChannels:policy.allowedEvents;
-  const roleMap=(kind==='channel'?policy.roleChannels:policy.roleEvents)?.[role];
-  const userMap=(kind==='channel'?policy.userChannels:policy.userEvents)?.[uid];
-  if(userMap&&Object.prototype.hasOwnProperty.call(userMap,key))return userMap[key]!==false;
-  if(roleMap&&Object.prototype.hasOwnProperty.call(roleMap,key))return roleMap[key]!==false;
-  if(Object.prototype.hasOwnProperty.call(global||{},key))return global[key]!==false;
-  return kind==='channel'?key==='in_app':true;
-}
-function notificationCostText(meta){
-  return meta.cost==='metered'?'May incur usage charges':meta.cost==='free'?'No delivery charge':'Requires a configured provider';
-}
-function notificationSettingRow({label,checked=false,disabled=false,reason='',kind,key,prefix='my'}){
-  return `<label class="notification-setting-row ${disabled?'disabled':''}"><span><strong>${escapeHtml(label)}</strong>${reason?`<small>${escapeHtml(reason)}</small>`:''}</span><input type="checkbox" data-${prefix}-notification-${kind}="${escapeHtml(key)}" ${checked?'checked':''} ${disabled?'disabled':''}></label>`;
-}
-function renderNotificationSettingsUI(){
-  const cloud=!!firebase?.auth?.currentUser,own=notificationOwnState;
-  $('notificationCloudRequired')?.classList.toggle('hidden',cloud);
-  if(!$('myNotificationSettings'))return;
-  if(!cloud||!own){
-    $('myNotificationSettings').innerHTML='<p class="subtle">Connect to the project cloud to manage notifications.</p>';
-    $('ownerNotificationControls')?.classList.add('hidden');
-    return;
-  }
-  const prefs=own.preferences||{channels:{},events:{},destinations:{}};
-  const channelRows=Object.entries(SNAG_NOTIFICATION_CHANNELS).map(([key,meta])=>{
-    const allowed=notificationPolicyAllowed(own,'channel',key),checked=prefs.channels?.[key]===true||(key==='in_app'&&prefs.channels?.[key]!==false);
-    const providerReady=key==='in_app'||own.providers?.[key]?.configured===true;
-    const pushReady=key==='web_push'?!!prefs.destinations?.oneSignalExternalId:key==='ios_push'?prefs.destinations?.nativePushRegistered===true:true;
-    const disabled=!allowed||key==='in_app'||!providerReady||!pushReady;
-    const reason=!allowed?'Not enabled by the homeowner':!providerReady?'Delivery provider not configured':!pushReady?'Push is not registered on this device':notificationCostText(meta);
-    return notificationSettingRow({label:meta.label,checked,disabled,reason,kind:'channel',key});
-  }).join('');
-  const eventRows=Object.entries(SNAG_NOTIFICATION_EVENTS).map(([key,label])=>{
-    const allowed=notificationPolicyAllowed(own,'event',key),mandatory=own.policy?.mandatoryEvents?.[key]===true,checked=mandatory||prefs.events?.[key]!==false;
-    return notificationSettingRow({label,checked,disabled:!allowed||mandatory,reason:mandatory?'Required by the homeowner':(!allowed?'Not enabled by the homeowner':''),kind:'event',key});
-  }).join('');
-  $('myNotificationSettings').innerHTML='<div class="notification-setting-group"><h4>How to tell me</h4>'+channelRows+'</div><div class="notification-setting-group"><h4>What to tell me about</h4>'+eventRows+'</div>';
-  const dest=prefs.destinations||{};
-  $('myNotificationEmail').value=dest.email||firebase.auth.currentUser.email||'';
-  $('myNotificationPhone').value=dest.phone||'';
-  $('myNotificationWhatsapp').value=dest.whatsapp||'';
-  $('myNotificationTelegram').value=dest.telegramChatId||'';
-
-  const owner=own.viewer?.owner===true;
-  $('ownerNotificationControls')?.classList.toggle('hidden',!owner);
-  if(!owner)return;
-  const select=$('notificationMemberSelect');
-  const people=notificationMembers.filter(x=>x.uid&&x.uid!==firebase.auth.currentUser.uid);
-  const previous=notificationSelectedMemberUid||select.value;
-  select.innerHTML=people.length?people.map(m=>`<option value="${escapeHtml(m.uid)}">${escapeHtml(m.name||m.label||m.role||'Project member')} · ${escapeHtml(m.role||'member')}</option>`).join(''):'<option value="">No other project members yet</option>';
-  notificationSelectedMemberUid=people.some(x=>x.uid===previous)?previous:(people[0]?.uid||'');
-  select.value=notificationSelectedMemberUid;
-  renderOwnerMemberNotificationSettings();
-}
-function renderOwnerMemberNotificationSettings(){
-  const host=$('ownerMemberNotificationSettings'),state=notificationTargetState,uid=notificationSelectedMemberUid;
-  if(!host)return;
-  if(!uid){host.innerHTML='<p class="subtle">Invite a builder or contractor to configure their notification access.</p>';return}
-  if(!state||state.target?.uid!==uid){host.innerHTML='<p class="subtle">Loading this person’s notification settings…</p>';return}
-  const prefs=state.preferences||{channels:{},events:{},destinations:{}};
-  const channelRows=Object.entries(SNAG_NOTIFICATION_CHANNELS).map(([key,meta])=>{
-    const allowed=notificationPolicyAllowed(state,'channel',key),receive=prefs.channels?.[key]===true||(key==='in_app'&&prefs.channels?.[key]!==false);
-    const providerReady=key==='in_app'||state.providers?.[key]?.configured===true;
-    const pushReady=key==='web_push'?!!prefs.destinations?.oneSignalExternalId:key==='ios_push'?prefs.destinations?.nativePushRegistered===true:true;
-    const reason=!providerReady?'Provider not configured':!pushReady?'Push not registered':notificationCostText(meta);
-    return `<div class="notification-owner-row"><div><strong>${escapeHtml(meta.label)}</strong><small>${escapeHtml(reason)}</small></div><label><input type="checkbox" data-owner-allow-channel="${escapeHtml(key)}" ${allowed?'checked':''} ${key==='in_app'?'disabled':''}> Allow</label><label><input type="checkbox" data-owner-receive-channel="${escapeHtml(key)}" ${receive?'checked':''} ${!allowed||key==='in_app'||!providerReady||!pushReady?'disabled':''}> Receive</label></div>`;
-  }).join('');
-  const eventRows=Object.entries(SNAG_NOTIFICATION_EVENTS).map(([key,label])=>{
-    const allowed=notificationPolicyAllowed(state,'event',key),receive=prefs.events?.[key]!==false;
-    return `<div class="notification-owner-row"><div><strong>${escapeHtml(label)}</strong></div><label><input type="checkbox" data-owner-allow-event="${escapeHtml(key)}" ${allowed?'checked':''}> Allow</label><label><input type="checkbox" data-owner-receive-event="${escapeHtml(key)}" ${receive?'checked':''} ${!allowed?'disabled':''}> Receive</label></div>`;
-  }).join('');
-  host.innerHTML='<div class="notification-setting-group"><h4>Channels</h4>'+channelRows+'</div><div class="notification-setting-group"><h4>Events</h4>'+eventRows+'</div>';
-  const dest=prefs.destinations||{};
-  $('memberNotificationEmail').value=dest.email||'';
-  $('memberNotificationPhone').value=dest.phone||'';
-  $('memberNotificationWhatsapp').value=dest.whatsapp||'';
-  $('memberNotificationTelegram').value=dest.telegramChatId||'';
-  host.querySelectorAll('[data-owner-allow-channel],[data-owner-allow-event]').forEach(box=>box.onchange=()=>{
-    const key=box.dataset.ownerAllowChannel||box.dataset.ownerAllowEvent;
-    const receive=box.dataset.ownerAllowChannel?host.querySelector('[data-owner-receive-channel="'+CSS.escape(key)+'"]'):host.querySelector('[data-owner-receive-event="'+CSS.escape(key)+'"]');
-    if(receive){receive.disabled=!box.checked;if(!box.checked)receive.checked=false}
-  });
-}
-function renderNotificationInbox(){
-  if(!$('notificationInboxList'))return;
-  $('notificationInboxList').innerHTML=notificationInbox.map(item=>`<article class="notification-inbox-item ${item.unread!==false?'unread':''}"><div><strong>${escapeHtml(item.title||'Notification')}</strong><p>${escapeHtml(item.body||'')}</p><small>${fmt(item.createdAt)}</small></div>${item.unread!==false?`<button type="button" class="text-button" data-read-notification="${escapeHtml(item.id||'')}">Mark read</button>`:''}</article>`).join('')||'<p class="subtle">No notifications yet.</p>';
-  $('notificationInboxList').querySelectorAll('[data-read-notification]').forEach(button=>button.onclick=()=>markSnagNotificationRead(button.dataset.readNotification));
-  $('markNotificationsRead').disabled=notificationInboxUnread===0;
-}
-async function loadNotificationTarget(uid){
-  if(!uid){notificationTargetState=null;renderOwnerMemberNotificationSettings();return}
-  notificationSelectedMemberUid=uid;notificationTargetState=null;renderOwnerMemberNotificationSettings();
-  notificationTargetState=await snagNotificationRequest('/notifications/settings?targetUid='+encodeURIComponent(uid));
-  renderOwnerMemberNotificationSettings();
-}
-async function refreshSnagNotifications({includeMembers=false}={}){
-  if(!firebase?.auth?.currentUser){notificationOwnState=null;notificationTargetState=null;notificationMembers=[];notificationInbox=[];notificationInboxUnread=0;notificationInboxLoaded=false;renderNotificationSettingsUI();renderNotificationInbox();renderUnreadIndicators();return}
-  const [own,inbox]=await Promise.all([
-    snagNotificationRequest('/notifications/settings'),
-    snagNotificationRequest('/notifications/inbox?limit=100')
-  ]);
-  if(own)notificationOwnState=own;
-  if(inbox){notificationInbox=inbox.items||[];notificationInboxUnread=Number(inbox.unread)||0;notificationInboxLoaded=true}
-  if((includeMembers||notificationOwnState?.viewer?.owner)&&notificationOwnState?.viewer?.owner){
-    const rows=await loadProjectMembers(true);
-    notificationMembers=rows.map(x=>({uid:x.uid||x.id,name:x.name||x.label||'',label:x.label||'',role:x.role||'member',admin:x.admin===true}));
-    const people=notificationMembers.filter(x=>x.uid!==firebase.auth.currentUser.uid);
-    if(!notificationSelectedMemberUid||!people.some(x=>x.uid===notificationSelectedMemberUid))notificationSelectedMemberUid=people[0]?.uid||'';
-    if(notificationSelectedMemberUid)await loadNotificationTarget(notificationSelectedMemberUid);else notificationTargetState=null;
-  }
-  renderNotificationSettingsUI();renderNotificationInbox();renderUnreadIndicators();
-}
-async function enableSnagWebPush(){
-  if(!firebase?.auth?.currentUser||!notificationOwnState)return toast('Cloud connection required');
-  const button=$('enableWebPushNotifications'),status=$('webPushRegistrationStatus');
-  button.disabled=true;status.textContent='Setting up push…';
-  try{
-    const push=await import('https://nirav2000.github.io/Apps/notifications/v1/push.js?v=1');
-    const config=await push.webPushPublicConfig();
-    if(!config?.webPush?.configured||!config.webPush.appId){
-      status.textContent='Push provider is not configured yet.';
-      return;
-    }
-    const externalId='snag:'+firebase.auth.currentUser.uid;
-    const result=await push.registerWebPush({
-      appId:config.webPush.appId,
-      externalId,
-      serviceWorkerPath:'/snag/onesignal/OneSignalSDKWorker.js',
-      serviceWorkerScope:'/snag/onesignal/',
-      requestPermission:true
-    });
-    if(!result.ok){
-      status.textContent=result.reason==='ios-home-screen-required'?'On iPhone/iPad, add Snag to the Home Screen first, then enable push here.':result.reason==='permission-not-granted'?'Push permission was not granted. You can change it in browser/device settings.':'Push is not available on this device.';
-      return;
-    }
-    const prefs=structuredClone(notificationOwnState.preferences||{channels:{},events:{},destinations:{}});
-    prefs.channels=prefs.channels||{};prefs.destinations=prefs.destinations||{};
-    prefs.channels.web_push=true;
-    prefs.destinations.oneSignalExternalId=externalId;
-    const saved=await snagNotificationRequest('/notifications/settings',{method:'POST',body:{scope:'preferences',preferences:prefs}});
-    if(saved){status.textContent='Browser push is enabled on this device.';await refreshSnagNotifications()}
-    else status.textContent='Push permission was granted, but Snag could not save the subscription identity.';
-  }catch(error){console.error(error);status.textContent='Could not enable browser push.'}
-  finally{button.disabled=false}
-}
-
-async function saveMyNotificationSettings(){
-  if(!notificationOwnState)return;
-  const prefs=structuredClone(notificationOwnState.preferences||{channels:{},events:{},destinations:{}});
-  prefs.channels=prefs.channels||{};prefs.events=prefs.events||{};prefs.destinations=prefs.destinations||{};
-  $('myNotificationSettings').querySelectorAll('[data-my-notification-channel]').forEach(box=>prefs.channels[box.dataset.myNotificationChannel]=box.checked);
-  $('myNotificationSettings').querySelectorAll('[data-my-notification-event]').forEach(box=>prefs.events[box.dataset.myNotificationEvent]=box.checked);
-  Object.assign(prefs.destinations,{email:$('myNotificationEmail').value.trim(),phone:$('myNotificationPhone').value.trim(),whatsapp:$('myNotificationWhatsapp').value.trim(),telegramChatId:$('myNotificationTelegram').value.trim()});
-  const saved=await snagNotificationRequest('/notifications/settings',{method:'POST',body:{scope:'preferences',preferences:prefs}});
-  if(saved){$('notificationSettingsStatus').textContent='Your notification settings were saved.';await refreshSnagNotifications()}
-  else $('notificationSettingsStatus').textContent='Could not save notification settings.';
-}
-async function saveSelectedMemberNotifications(){
-  if(!notificationOwnState?.viewer?.owner||!notificationTargetState||!notificationSelectedMemberUid)return;
-  const uid=notificationSelectedMemberUid,policy=structuredClone(notificationOwnState.policy||{}),prefs=structuredClone(notificationTargetState.preferences||{channels:{},events:{},destinations:{}});
-  policy.userChannels=policy.userChannels||{};policy.userEvents=policy.userEvents||{};policy.userChannels[uid]=policy.userChannels[uid]||{};policy.userEvents[uid]=policy.userEvents[uid]||{};
-  prefs.channels=prefs.channels||{};prefs.events=prefs.events||{};prefs.destinations=prefs.destinations||{};
-  $('ownerMemberNotificationSettings').querySelectorAll('[data-owner-allow-channel]').forEach(box=>policy.userChannels[uid][box.dataset.ownerAllowChannel]=box.checked);
-  $('ownerMemberNotificationSettings').querySelectorAll('[data-owner-allow-event]').forEach(box=>policy.userEvents[uid][box.dataset.ownerAllowEvent]=box.checked);
-  $('ownerMemberNotificationSettings').querySelectorAll('[data-owner-receive-channel]').forEach(box=>prefs.channels[box.dataset.ownerReceiveChannel]=box.checked);
-  $('ownerMemberNotificationSettings').querySelectorAll('[data-owner-receive-event]').forEach(box=>prefs.events[box.dataset.ownerReceiveEvent]=box.checked);
-  Object.assign(prefs.destinations,{email:$('memberNotificationEmail').value.trim(),phone:$('memberNotificationPhone').value.trim(),whatsapp:$('memberNotificationWhatsapp').value.trim(),telegramChatId:$('memberNotificationTelegram').value.trim()});
-  const policySaved=await snagNotificationRequest('/notifications/settings',{method:'POST',body:{scope:'policy',policy}});
-  const prefsSaved=policySaved?await snagNotificationRequest('/notifications/settings',{method:'POST',body:{scope:'preferences',targetUid:uid,preferences:prefs}}):null;
-  if(policySaved&&prefsSaved){$('notificationSettingsStatus').textContent='Notification access and preferences saved for this person.';await refreshSnagNotifications({includeMembers:true})}
-  else $('notificationSettingsStatus').textContent='Could not save this person’s notification settings.';
-}
-async function markSnagNotificationRead(id){
-  const result=await snagNotificationRequest('/notifications/read',{method:'POST',body:{id}});
-  if(result)await refreshSnagNotifications();
-}
-async function markAllSnagNotificationsRead(){
-  const result=await snagNotificationRequest('/notifications/read',{method:'POST',body:{all:true}});
-  if(result)await refreshSnagNotifications();
-}
-async function openNotificationCentre(){
-  $('notificationDialog').showModal();$('notificationInboxStatus').textContent='Loading notifications…';
-  await refreshSnagNotifications({includeMembers:false});
-  $('notificationInboxStatus').textContent='';
-}
-
 async function createSnag(e){
   e.preventDefault();
   if(!await requireCommercialAccess('createSnag'))return;
@@ -576,9 +339,9 @@ async function createSnag(e){
     return;
   }
   const mediaLead=pendingFiles[0]?.type?.startsWith('video/')?'Video snag':pendingFiles[0]?.type?.startsWith('image/')?'Photo snag':'New snag';
-  const title=enteredTitle||(description.split(/\n|[.!?]/)[0].trim().slice(0,90)||mediaLead);const id=uid(),t=now();$('createSnagSubmit').disabled=true;$('createSnagSubmit').textContent=pendingFiles.length?'Uploading…':'Saving…';try{const media=await prepareMedia(pendingFiles,`snag-projects/${selectedProjectId}/snags/${id}`);const assignee=$('snagAssigneeInput').value.trim(),match=await resolveAssigneeIdentity(assignee),creatorUid=firebase?.auth?.currentUser?.uid||null,assigneeId=match?.uid||match?.id||null,participantUids=[...new Set([creatorUid,assigneeId].filter(Boolean))];const snag={id,projectId:selectedProjectId,ref:nextRef(),title,category:$('snagCategoryInput').value,priority:$('snagPriorityInput').value,location:$('snagLocationInput').value.trim(),assignee,assigneeId,participantUids,description,outcome:$('snagOutcomeInput').value.trim(),status:'open',archived:false,createdAt:t,updatedAt:t,createdBy:profile.name,createdByUid:creatorUid,media,updates:[{id:uid(),type:'note',text:'Snag recorded.',author:profile.name,authorUid:creatorUid,role:profile.role,createdAt:t,media:[]} ]};state.snags.push(snag);markDirty(snag.id);saveState();if(firebase){await writeSnag(snag);clearDirty(snag.id);await emitSnagNotification('snag.created',snag,'snag.created:'+snag.id);}await markSnagSeen(id);$('snagDialog').close();$('snagForm').reset();pendingFiles=[];$('newMediaPreview').innerHTML='';toast('Snag created');render();openDetail(id);}catch(err){console.error(err);const msg=err?.message||'Could not save the snag';const formError=$('snagFormError');if(formError){formError.textContent=msg;formError.classList.remove('hidden');formError.scrollIntoView({behavior:'smooth',block:'center'});}toast(msg);}finally{$('createSnagSubmit').disabled=false;$('createSnagSubmit').textContent='Create snag';}}
-async function addUpdate(id,text,files=[],evidenceType='progress'){text=text.trim();if(!text&&!files.length)return;const s=state.snags.find(x=>x.id===id);const u={id:uid(),type:'note',evidenceType,text,author:profile.name,authorUid:firebase?.auth?.currentUser?.uid||null,role:profile.role,createdAt:now(),media:await prepareMedia(files,`snag-projects/${selectedProjectId}/snags/${id}/updates`)};s.updates=s.updates||[];s.updates.push(u);s.updatedAt=u.createdAt;markDirty(s.id);saveState();if(firebase){await writeUpdate(s,u);clearDirty(s.id);await emitSnagNotification('snag.comment_added',s,'snag.comment_added:'+u.id);}await markSnagSeen(id);render();openDetail(id);toast('Update added');}
-async function setStatus(id,status){const s=state.snags.find(x=>x.id===id);if(!s||s.status===status)return;s.status=status;s.updatedAt=now();s.resolvedAt=status==='resolved'?s.updatedAt:null;markDirty(s.id);const statusUpdate={id:uid(),type:'status',text:`Status changed to ${statusLabel[status]}.`,author:profile.name,authorUid:firebase?.auth?.currentUser?.uid||null,role:profile.role,createdAt:s.updatedAt,media:[]};s.updates.push(statusUpdate);saveState();if(firebase){await writeSnag(s);clearDirty(s.id);await emitSnagNotification('snag.status_changed',s,'snag.status_changed:'+statusUpdate.id);}await markSnagSeen(id);render();openDetail(id);toast(`Moved to ${statusLabel[status]}`);}
+  const title=enteredTitle||(description.split(/\n|[.!?]/)[0].trim().slice(0,90)||mediaLead);const id=uid(),t=now();$('createSnagSubmit').disabled=true;$('createSnagSubmit').textContent=pendingFiles.length?'Uploading…':'Saving…';try{const media=await prepareMedia(pendingFiles,`snag-projects/${selectedProjectId}/snags/${id}`);const assignee=$('snagAssigneeInput').value.trim(),match=await resolveAssigneeIdentity(assignee),creatorUid=firebase?.auth?.currentUser?.uid||null,assigneeId=match?.uid||match?.id||null,participantUids=[...new Set([creatorUid,assigneeId].filter(Boolean))];const snag={id,projectId:selectedProjectId,ref:nextRef(),title,category:$('snagCategoryInput').value,priority:$('snagPriorityInput').value,location:$('snagLocationInput').value.trim(),assignee,assigneeId,participantUids,description,outcome:$('snagOutcomeInput').value.trim(),status:'open',archived:false,createdAt:t,updatedAt:t,createdBy:profile.name,createdByUid:creatorUid,media,updates:[{id:uid(),type:'note',text:'Snag recorded.',author:profile.name,authorUid:creatorUid,role:profile.role,createdAt:t,media:[]} ]};state.snags.push(snag);markDirty(snag.id);saveState();if(firebase){await writeSnag(snag);clearDirty(snag.id);}await markSnagSeen(id);$('snagDialog').close();$('snagForm').reset();pendingFiles=[];$('newMediaPreview').innerHTML='';toast('Snag created');render();openDetail(id);}catch(err){console.error(err);const msg=err?.message||'Could not save the snag';const formError=$('snagFormError');if(formError){formError.textContent=msg;formError.classList.remove('hidden');formError.scrollIntoView({behavior:'smooth',block:'center'});}toast(msg);}finally{$('createSnagSubmit').disabled=false;$('createSnagSubmit').textContent='Create snag';}}
+async function addUpdate(id,text,files=[],evidenceType='progress'){text=text.trim();if(!text&&!files.length)return;const s=state.snags.find(x=>x.id===id);const u={id:uid(),type:'note',evidenceType,text,author:profile.name,authorUid:firebase?.auth?.currentUser?.uid||null,role:profile.role,createdAt:now(),media:await prepareMedia(files,`snag-projects/${selectedProjectId}/snags/${id}/updates`)};s.updates=s.updates||[];s.updates.push(u);s.updatedAt=u.createdAt;markDirty(s.id);saveState();if(firebase){await writeUpdate(s,u);clearDirty(s.id);}await markSnagSeen(id);render();openDetail(id);toast('Update added');}
+async function setStatus(id,status){const s=state.snags.find(x=>x.id===id);if(!s||s.status===status)return;s.status=status;s.updatedAt=now();s.resolvedAt=status==='resolved'?s.updatedAt:null;markDirty(s.id);s.updates.push({id:uid(),type:'status',text:`Status changed to ${statusLabel[status]}.`,author:profile.name,role:profile.role,createdAt:s.updatedAt,media:[]});saveState();if(firebase){await writeSnag(s);clearDirty(s.id);}await markSnagSeen(id);render();openDetail(id);toast(`Moved to ${statusLabel[status]}`);}
 async function toggleArchive(id){const s=state.snags.find(x=>x.id===id);s.archived=!s.archived;s.updatedAt=now();markDirty(s.id);saveState();if(firebase){await writeSnag(s);clearDirty(s.id);}render();openDetail(id);toast(s.archived?'Archived':'Restored');}
 function similarTo(text){const stop=new Set(['the','and','this','that','with','from','into','when','does','not','for','are','was','has','have','home','snag']);const words=new Set(text.toLowerCase().match(/[a-z0-9]+/g)?.filter(w=>w.length>3&&!stop.has(w))||[]);return projectSnags().filter(s=>s.status==='resolved').map(s=>{const sw=new Set(`${s.title} ${s.description} ${s.location}`.toLowerCase().match(/[a-z0-9]+/g)||[]);let hits=0;words.forEach(w=>{if(sw.has(w))hits++});return{s,score:words.size?hits/words.size:0};}).filter(x=>x.score>.12).sort((a,b)=>b.score-a.score).slice(0,3);}
 function renderSimilar(){const text=`${$('snagTitleInput').value} ${$('snagDescriptionInput').value} ${$('snagLocationInput').value}`;const matches=similarTo(text);$('similarPanel').classList.toggle('hidden',!matches.length);$('similarResults').innerHTML=matches.map(x=>`<div class="similar-item"><strong>${escapeHtml(x.s.ref)} · ${escapeHtml(x.s.title)}</strong><div class="subtle">Resolved ${x.s.resolvedAt?fmt(x.s.resolvedAt):''} · ${escapeHtml(x.s.location||'')}</div></div>`).join('');}
@@ -1037,7 +800,7 @@ async function ensureProjectRemote(){
 async function writeSnag(s){const {fsMod,db}=firebase;await applySnagAccess(s,{newRecord:!s.createdByUid});const clean={...s};delete clean.updates;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),clean,{merge:true});for(const u of s.updates||[])await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});}
 async function writeUpdate(s,u){const {fsMod,db,auth}=firebase;u.authorUid=u.authorUid||auth.currentUser.uid;await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id,'updates',u.id),u,{merge:true});await fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',s.id),{updatedAt:s.updatedAt},{merge:true});}
 async function subscribeFirebase(){
-  if(!firebase?.auth?.currentUser)return;unsubscribe?.();await loadCurrentMember();await subscribeSeenState();await refreshSnagNotifications({includeMembers:isProjectOwner()});
+  if(!firebase?.auth?.currentUser)return;unsubscribe?.();await loadCurrentMember();await subscribeSeenState();
   const {fsMod,db,auth}=firebase,col=fsMod.collection(db,'snag_projects',selectedProjectId,'snags'),restricted=currentMember?.role==='contractor'&&Number(project()?.accessModelVersion||0)>=2;
   const q=restricted?fsMod.query(col,fsMod.where('participantUids','array-contains',auth.currentUser.uid)):fsMod.query(col,fsMod.orderBy('updatedAt','desc'));
   unsubscribe=fsMod.onSnapshot(q,async snap=>{
@@ -1130,7 +893,7 @@ async function hardRefreshApp(){
   }catch(e){console.warn(e)}
   const u=new URL(location.href);u.searchParams.set('_build',Date.now());location.replace(u.toString());
 }
-function bind(){bindAnnotationCanvas();$('editSnagForm').onsubmit=saveSnagEdit;$('closeGuideButton').onclick=finishGuide;$('finishGuideButton').onclick=finishGuide;if($('homeSearchInput'))$('homeSearchInput').onchange=e=>{view.search=e.target.value;setNav('snags');$('searchInput').value=view.search;renderList()};if($('homeFilterButton'))$('homeFilterButton').onclick=()=>{setNav('snags');$('filterPanel').classList.remove('hidden')};if($('homeGridButton'))$('homeGridButton').onclick=()=>setNav('snags');if($('seeAllSnags'))$('seeAllSnags').onclick=()=>setNav('snags');document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.onclick=()=>setNav(b.dataset.nav));if($('notificationButton'))$('notificationButton').onclick=openNotificationCentre;$('feedbackButton').onclick=()=>{if(window.openSnagFeedback)window.openSnagFeedback();else toast('Feedback tool is loading…')};if($('closeNotificationDialog'))$('closeNotificationDialog').onclick=()=>$('notificationDialog').close();if($('markNotificationsRead'))$('markNotificationsRead').onclick=markAllSnagNotificationsRead;if($('openNotificationSettings'))$('openNotificationSettings').onclick=async()=>{$('notificationDialog').close();$('settingsDialog').showModal();await refreshSnagNotifications({includeMembers:isProjectOwner()})};if($('saveMyNotifications'))$('saveMyNotifications').onclick=saveMyNotificationSettings;if($('enableWebPushNotifications'))$('enableWebPushNotifications').onclick=enableSnagWebPush;if($('notificationMemberSelect'))$('notificationMemberSelect').onchange=e=>loadNotificationTarget(e.target.value);if($('saveMemberNotifications'))$('saveMemberNotifications').onclick=saveSelectedMemberNotifications;$('closeMyNotes').onclick=()=>$('myNotesDialog').close();$('addPrivateNote').onclick=addPrivateNote;$('annotationCancel').onclick=()=>$('annotateDialog').close();$('annotationSave').onclick=saveAnnotation;$('annotationUndo').onclick=()=>{annotationState.history.pop();redrawAnnotation()};$('annotationClear').onclick=()=>{annotationState.history=[];redrawAnnotation()};document.querySelectorAll('[data-annotation-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-annotation-tool]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');annotationState.colour=b.dataset.annotationTool==='yellow'?'#facc15':b.dataset.annotationTool==='black'?'#111827':'#ef4444'});document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('projectCoverInput').onchange=e=>{const f=e.target.files?.[0];e.target.value='';if(f)setProjectCover(f)};$('removeProjectCoverButton').onclick=removeProjectCover;$('manageRoomsButton').onclick=openRoomManager;$('openRoomManagerButton').onclick=openRoomManager;$('closeRoomManager').onclick=()=>$('roomManagerDialog').close();$('guidesEnabledInput').onchange=e=>{localStorage.setItem(LS.guidesEnabled,e.target.checked?'1':'0');toast(e.target.checked?'Quick guides enabled':'Quick guides disabled')};$('showGuideNowButton').onclick=()=>showGuide(isAdmin()?'owner':'contractor');$('settingsButton').onclick=async()=>{$('settingsDialog').showModal();await refreshSnagNotifications({includeMembers:isProjectOwner()})};$('shareButton').onclick=shareProject;if($('syncPill'))$('syncPill').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;setNav('snags');render()});$('createProjectButton').onclick=async()=>{if(!await requireCommercialAccess('createProject'))return;const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProjectSetupButton').onclick=async()=>{const p=project();p.locations=$('projectLocationsInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.assignees=$('projectAssigneesInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.updatedAt=now();saveState();if(firebase)await ensureProjectRemote();render();toast('Project setup saved')};$('createShareLinkButton').onclick=createShareLink;$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));if(firebase?.auth?.currentUser)window.AppMonitor?.identify?.({uid:firebase.auth.currentUser.uid,username:profile.name,provider:firebase.auth.currentUser.providerData?.[0]?.providerId||(firebase.auth.currentUser.isAnonymous?'anonymous':'firebase'),isAnonymous:firebase.auth.currentUser.isAnonymous});render();toast('Identity saved')};if($('protectEmailButton'))$('protectEmailButton').onclick=protectAccessWithEmail;if($('signInProtectedButton'))$('signInProtectedButton').onclick=signInProtectedAccess;if($('resetProtectedPasswordButton'))$('resetProtectedPasswordButton').onclick=sendProtectedPasswordReset;$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});if($('buildBadge'))$('buildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};if($('mobileBuildBadge'))$('mobileBuildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
+function bind(){bindAnnotationCanvas();$('editSnagForm').onsubmit=saveSnagEdit;$('closeGuideButton').onclick=finishGuide;$('finishGuideButton').onclick=finishGuide;if($('homeSearchInput'))$('homeSearchInput').onchange=e=>{view.search=e.target.value;setNav('snags');$('searchInput').value=view.search;renderList()};if($('homeFilterButton'))$('homeFilterButton').onclick=()=>{setNav('snags');$('filterPanel').classList.remove('hidden')};if($('homeGridButton'))$('homeGridButton').onclick=()=>setNav('snags');if($('seeAllSnags'))$('seeAllSnags').onclick=()=>setNav('snags');document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.onclick=()=>setNav(b.dataset.nav));if($('notificationButton'))$('notificationButton').onclick=()=>{setNav('home');setTimeout(()=>$('recentActivity')?.scrollIntoView({behavior:'smooth',block:'start'}),30)};$('feedbackButton').onclick=()=>{if(window.openSnagFeedback)window.openSnagFeedback();else toast('Feedback tool is loading…')};$('closeMyNotes').onclick=()=>$('myNotesDialog').close();$('addPrivateNote').onclick=addPrivateNote;$('annotationCancel').onclick=()=>$('annotateDialog').close();$('annotationSave').onclick=saveAnnotation;$('annotationUndo').onclick=()=>{annotationState.history.pop();redrawAnnotation()};$('annotationClear').onclick=()=>{annotationState.history=[];redrawAnnotation()};document.querySelectorAll('[data-annotation-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-annotation-tool]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');annotationState.colour=b.dataset.annotationTool==='yellow'?'#facc15':b.dataset.annotationTool==='black'?'#111827':'#ef4444'});document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('projectCoverInput').onchange=e=>{const f=e.target.files?.[0];e.target.value='';if(f)setProjectCover(f)};$('removeProjectCoverButton').onclick=removeProjectCover;$('manageRoomsButton').onclick=openRoomManager;$('openRoomManagerButton').onclick=openRoomManager;$('closeRoomManager').onclick=()=>$('roomManagerDialog').close();$('guidesEnabledInput').onchange=e=>{localStorage.setItem(LS.guidesEnabled,e.target.checked?'1':'0');toast(e.target.checked?'Quick guides enabled':'Quick guides disabled')};$('showGuideNowButton').onclick=()=>showGuide(isAdmin()?'owner':'contractor');$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;if($('syncPill'))$('syncPill').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;setNav('snags');render()});$('createProjectButton').onclick=async()=>{if(!await requireCommercialAccess('createProject'))return;const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProjectSetupButton').onclick=async()=>{const p=project();p.locations=$('projectLocationsInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.assignees=$('projectAssigneesInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.updatedAt=now();saveState();if(firebase)await ensureProjectRemote();render();toast('Project setup saved')};$('createShareLinkButton').onclick=createShareLink;$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));if(firebase?.auth?.currentUser)window.AppMonitor?.identify?.({uid:firebase.auth.currentUser.uid,username:profile.name,provider:firebase.auth.currentUser.providerData?.[0]?.providerId||(firebase.auth.currentUser.isAnonymous?'anonymous':'firebase'),isAnonymous:firebase.auth.currentUser.isAnonymous});render();toast('Identity saved')};if($('protectEmailButton'))$('protectEmailButton').onclick=protectAccessWithEmail;if($('signInProtectedButton'))$('signInProtectedButton').onclick=signInProtectedAccess;if($('resetProtectedPasswordButton'))$('resetProtectedPasswordButton').onclick=sendProtectedPasswordReset;$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});if($('buildBadge'))$('buildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};if($('mobileBuildBadge'))$('mobileBuildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
 
 async function deleteOwnSeen(projectId,memberUid){
   const {fsMod,db}=firebase;try{const seen=await fsMod.getDocs(fsMod.collection(db,'snag_projects',projectId,'members',memberUid,'seen'));for(const d of seen.docs)await fsMod.deleteDoc(d.ref)}catch{}
