@@ -24,22 +24,34 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Compare source and deployed Worker builds
+      - name: Compare source and deployed Worker revisions
         id: compare
         run: |
-          SOURCE_BUILD="$(node -e "const fs=require('fs');const s=fs.readFileSync('app-monitor-worker.js','utf8');const m=s.match(/WORKER_BUILD='([^']+)'/);if(!m)process.exit(2);process.stdout.write(m[1])")"
-          LIVE_BUILD="$(curl --fail --silent --show-error 'https://apps-monitor-api.nirav2000-github.workers.dev/health' | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).build||'')}catch{}})")"
-          echo "source=$SOURCE_BUILD" >> "$GITHUB_OUTPUT"
-          echo "live=$LIVE_BUILD" >> "$GITHUB_OUTPUT"
-          if [ "$SOURCE_BUILD" = "$LIVE_BUILD" ]; then echo "deploy=false" >> "$GITHUB_OUTPUT"; else echo "deploy=true" >> "$GITHUB_OUTPUT"; fi
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          LIVE_SHA="$(curl --fail --silent --show-error 'https://apps-monitor-api.nirav2000-github.workers.dev/health' | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).sourceSha||'')}catch{}})")"
+          echo "source=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "live=$LIVE_SHA" >> "$GITHUB_OUTPUT"
+          if [ "$SOURCE_SHA" = "$LIVE_SHA" ]; then echo "deploy=false" >> "$GITHUB_OUTPUT"; else echo "deploy=true" >> "$GITHUB_OUTPUT"; fi
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Create deployment config with source SHA
+        if: steps.compare.outputs.deploy == 'true'
+        env:
+          SOURCE_SHA: ${{ steps.compare.outputs.source }}
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const cfg=JSON.parse(fs.readFileSync('wrangler-app-monitor.jsonc','utf8'));
+          cfg.vars={...(cfg.vars||{}),APP_MONITOR_SOURCE_SHA:process.env.SOURCE_SHA};
+          fs.writeFileSync('wrangler-app-monitor.generated.jsonc',JSON.stringify(cfg,null,2));
+          NODE
+
       - name: Deploy shared Worker
         if: steps.compare.outputs.deploy == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy -c wrangler-app-monitor.jsonc
+        run: npx wrangler deploy -c wrangler-app-monitor.generated.jsonc
 
       - name: Sync notification provider secrets
         env:
@@ -92,5 +104,14 @@ jobs:
           CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Origin: https://nirav2000.github.io' 'https://apps-monitor-api.nirav2000-github.workers.dev/app-monitor/notifications/state')"
           if [ "$CODE" != "401" ]; then
             echo "::error::Expected App Monitor notification route to exist and require authentication (401), got $CODE"
+            exit 1
+          fi
+
+      - name: Verify deployed source SHA
+        run: |
+          SOURCE_SHA="${{ steps.compare.outputs.source }}"
+          LIVE_SHA="$(curl --fail --silent --show-error 'https://apps-monitor-api.nirav2000-github.workers.dev/health' | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).sourceSha||'')}catch{}})")"
+          if [ "$SOURCE_SHA" != "$LIVE_SHA" ]; then
+            echo "::error::Live App Monitor Worker source SHA does not match Apps/main. source=$SOURCE_SHA live=$LIVE_SHA"
             exit 1
           fi
