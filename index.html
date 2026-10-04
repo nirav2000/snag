@@ -74,6 +74,11 @@
     <p class="subtle">You decide the maximum notification access for this project. This matters especially for paid channels such as SMS and WhatsApp.</p>
     <label>Person<select id="notificationMemberSelect"></select></label>
     <div id="ownerMemberNotificationSettings" class="notification-settings-grid"></div>
+    <div class="notification-destinations form-stack compact">
+      <label>Recipient email<input id="memberNotificationEmail" type="email" placeholder="builder@example.com"></label>
+      <div class="form-grid two"><label>Recipient mobile / SMS<input id="memberNotificationPhone" type="tel" placeholder="+44…"></label><label>Recipient WhatsApp<input id="memberNotificationWhatsapp" type="tel" placeholder="+44…"></label></div>
+      <label>Recipient Telegram chat ID<input id="memberNotificationTelegram" type="text" placeholder="Optional"></label>
+    </div>
     <button id="saveMemberNotifications" class="secondary-button" type="button">Save access for this person</button>
   </div>
   <p id="notificationSettingsStatus" class="microcopy"></p>
