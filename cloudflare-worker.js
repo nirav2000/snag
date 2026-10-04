@@ -42,6 +42,7 @@ async function notificationPolicy(projectId,ownerUid,env){return await r2JSON(en
 async function notificationPreferences(projectId,uid,identity,env){return await r2JSON(env,NOTIFICATION_PREFIX+'projects/'+projectId+'/members/'+uid+'/preferences.json')||defaultNotificationPreferences(identity)}
 function setting(map,key,fallback=true){return Object.prototype.hasOwnProperty.call(map||{},key)?map[key]!==false:fallback}
 function notificationAllowed(policy,member,kind,key){
+ if(member?.owner===true||member?.role==='owner')return true;
  const global=kind==='channel'?policy.allowedChannels:policy.allowedEvents;
  const roleMap=(kind==='channel'?policy.roleChannels:policy.roleEvents)?.[member.role];
  const userMap=(kind==='channel'?policy.userChannels:policy.userEvents)?.[member.uid];
