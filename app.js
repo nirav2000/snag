@@ -398,8 +398,11 @@ function renderNotificationSettingsUI(){
   const prefs=own.preferences||{channels:{},events:{},destinations:{}};
   const channelRows=Object.entries(SNAG_NOTIFICATION_CHANNELS).map(([key,meta])=>{
     const allowed=notificationPolicyAllowed(own,'channel',key),checked=prefs.channels?.[key]===true||(key==='in_app'&&prefs.channels?.[key]!==false);
-    const reason=allowed?notificationCostText(meta):'Not enabled by the homeowner';
-    return notificationSettingRow({label:meta.label,checked,disabled:!allowed||key==='in_app',reason,kind:'channel',key});
+    const providerReady=key==='in_app'||own.providers?.[key]?.configured===true;
+    const pushReady=!['web_push','ios_push'].includes(key)||!!prefs.destinations?.oneSignalExternalId;
+    const disabled=!allowed||key==='in_app'||!providerReady||!pushReady;
+    const reason=!allowed?'Not enabled by the homeowner':!providerReady?'Delivery provider not configured':!pushReady?'Push is not registered on this device':notificationCostText(meta);
+    return notificationSettingRow({label:meta.label,checked,disabled,reason,kind:'channel',key});
   }).join('');
   const eventRows=Object.entries(SNAG_NOTIFICATION_EVENTS).map(([key,label])=>{
     const allowed=notificationPolicyAllowed(own,'event',key),mandatory=own.policy?.mandatoryEvents?.[key]===true,checked=mandatory||prefs.events?.[key]!==false;
@@ -431,7 +434,10 @@ function renderOwnerMemberNotificationSettings(){
   const prefs=state.preferences||{channels:{},events:{},destinations:{}};
   const channelRows=Object.entries(SNAG_NOTIFICATION_CHANNELS).map(([key,meta])=>{
     const allowed=notificationPolicyAllowed(state,'channel',key),receive=prefs.channels?.[key]===true||(key==='in_app'&&prefs.channels?.[key]!==false);
-    return `<div class="notification-owner-row"><div><strong>${escapeHtml(meta.label)}</strong><small>${escapeHtml(notificationCostText(meta))}</small></div><label><input type="checkbox" data-owner-allow-channel="${escapeHtml(key)}" ${allowed?'checked':''} ${key==='in_app'?'disabled':''}> Allow</label><label><input type="checkbox" data-owner-receive-channel="${escapeHtml(key)}" ${receive?'checked':''} ${!allowed||key==='in_app'?'disabled':''}> Receive</label></div>`;
+    const providerReady=key==='in_app'||state.providers?.[key]?.configured===true;
+    const pushReady=!['web_push','ios_push'].includes(key)||!!prefs.destinations?.oneSignalExternalId;
+    const reason=!providerReady?'Provider not configured':!pushReady?'Push not registered':notificationCostText(meta);
+    return `<div class="notification-owner-row"><div><strong>${escapeHtml(meta.label)}</strong><small>${escapeHtml(reason)}</small></div><label><input type="checkbox" data-owner-allow-channel="${escapeHtml(key)}" ${allowed?'checked':''} ${key==='in_app'?'disabled':''}> Allow</label><label><input type="checkbox" data-owner-receive-channel="${escapeHtml(key)}" ${receive?'checked':''} ${!allowed||key==='in_app'||!providerReady||!pushReady?'disabled':''}> Receive</label></div>`;
   }).join('');
   const eventRows=Object.entries(SNAG_NOTIFICATION_EVENTS).map(([key,label])=>{
     const allowed=notificationPolicyAllowed(state,'event',key),receive=prefs.events?.[key]!==false;
