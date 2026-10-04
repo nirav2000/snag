@@ -4,19 +4,11 @@
   "main": "cloudflare-worker.js",
   "compatibility_date": "2026-09-21",
   "workers_dev": true,
-  "observability": {
-    "enabled": true
-  },
-  "r2_buckets": [
-    {
-      "binding": "SNAG_MEDIA",
-      "bucket_name": "snag-media"
-    }
-  ],
+  "observability": { "enabled": true },
+  "r2_buckets": [{ "binding": "SNAG_MEDIA", "bucket_name": "snag-media" }],
   "vars": {
     "ALLOWED_ORIGIN": "https://nirav2000.github.io",
     "FIREBASE_WEB_API_KEY": "AIzaSyBnph6Ob5jhvJZMGvk1cpF0euno__aRtfU",
-    "FIREBASE_PROJECT_ID": "snag-509418",
-    "APPS_NOTIFICATION_ENDPOINT": "https://apps-monitor-api.nirav2000-github.workers.dev/notifications/deliver"
+    "FIREBASE_PROJECT_ID": "snag-509418"
   }
 }
