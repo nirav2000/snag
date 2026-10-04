@@ -1,4 +1,4 @@
-const WORKER_BUILD='2026.09.27.1645';
+const WORKER_BUILD='2026.10.04.notifications-v1';
 const cors=(origin,allowed)=>({'Access-Control-Allow-Origin':origin===allowed?origin:allowed,'Access-Control-Allow-Methods':'PUT,POST,GET,DELETE,OPTIONS','Access-Control-Allow-Headers':'Authorization,Content-Type','Access-Control-Max-Age':'86400'});
 const allowedOrigin=(request,env)=>(request.headers.get('Origin')||'')===(env.ALLOWED_ORIGIN||'https://nirav2000.github.io');
 async function firebaseIdentity(request,env){const h=request.headers.get('Authorization')||'';if(!h.startsWith('Bearer '))throw new Response('Unauthorized',{status:401});const token=h.slice(7),r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key='+encodeURIComponent(env.FIREBASE_WEB_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:token})});if(!r.ok)throw new Response('Unauthorized',{status:401});const data=await r.json(),user=data.users?.[0];if(!user?.localId)throw new Response('Unauthorized',{status:401});return{token,user,uid:user.localId}}
@@ -6,6 +6,58 @@ const fsBase=env=>`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_P
 const field=(doc,name)=>doc?.fields?.[name]?.stringValue??doc?.fields?.[name]?.integerValue??doc?.fields?.[name]?.booleanValue??null;
 async function projectAccess(projectId,identity,env,{owner=false}={}){const r=await fetch(fsBase(env)+'/snag_projects/'+encodeURIComponent(projectId),{headers:{Authorization:'Bearer '+identity.token}});if(!r.ok)throw new Response(r.status===403?'Forbidden':'Project unavailable',{status:r.status===403?403:404});const doc=await r.json();if(owner&&field(doc,'ownerUid')!==identity.uid)throw new Response('Owner access required',{status:403});return doc}
 function projectFromKey(key){const p=key.split('/');return p[0]==='snag-projects'&&p[1]?p[1]:null}
+const NOTIFICATION_PREFIX='_notifications/v1/';
+async function r2JSON(env,key){const o=await env.SNAG_MEDIA.get(key);if(!o)return null;try{return JSON.parse(await o.text())}catch{return null}}
+async function putR2JSON(env,key,value){await env.SNAG_MEDIA.put(key,JSON.stringify(value),{httpMetadata:{contentType:'application/json'}})}
+function fsValue(v){
+ if(!v)return null;
+ if(Object.prototype.hasOwnProperty.call(v,'stringValue'))return v.stringValue;
+ if(Object.prototype.hasOwnProperty.call(v,'booleanValue'))return v.booleanValue;
+ if(Object.prototype.hasOwnProperty.call(v,'integerValue'))return Number(v.integerValue);
+ if(Object.prototype.hasOwnProperty.call(v,'doubleValue'))return Number(v.doubleValue);
+ if(Object.prototype.hasOwnProperty.call(v,'timestampValue'))return v.timestampValue;
+ if(v.arrayValue)return (v.arrayValue.values||[]).map(fsValue);
+ if(v.mapValue){const out={};for(const [k,x] of Object.entries(v.mapValue.fields||{}))out[k]=fsValue(x);return out}
+ return null;
+}
+const docValue=(doc,name)=>fsValue(doc?.fields?.[name]);
+async function firestoreDoc(path,identity,env){
+ const r=await fetch(fsBase(env)+'/'+path,{headers:{Authorization:'Bearer '+identity.token}});
+ if(!r.ok)throw new Response(r.status===403?'Forbidden':'Not found',{status:r.status===403?403:404});
+ return r.json();
+}
+async function notificationMember(projectId,uid,identity,env){
+ const project=await projectAccess(projectId,identity,env),ownerUid=String(field(project,'ownerUid')||'');
+ if(uid===ownerUid)return{uid,role:'owner',admin:true,owner:true};
+ const doc=await firestoreDoc('snag_projects/'+encodeURIComponent(projectId)+'/members/'+encodeURIComponent(uid),identity,env);
+ return{uid,role:String(docValue(doc,'role')||'member'),admin:docValue(doc,'admin')===true,owner:false,name:String(docValue(doc,'name')||'')};
+}
+function defaultNotificationPolicy(ownerUid=''){
+ return{version:1,ownerUid,allowedChannels:{in_app:true,web_push:true,email:false,telegram:false,whatsapp:false,signal:false,slack:false,discord:false,sms:false,ios_push:false},allowedEvents:{'snag.created':true,'snag.updated':true,'snag.comment_added':true,'snag.status_changed':true},roleChannels:{},roleEvents:{},userChannels:{},userEvents:{},mandatoryEvents:{},updatedAt:null};
+}
+function defaultNotificationPreferences(identity){
+ return{version:1,channels:{in_app:true,web_push:true},events:{'snag.created':true,'snag.updated':true,'snag.comment_added':true,'snag.status_changed':true},destinations:{email:String(identity?.user?.email||'')},updatedAt:null};
+}
+async function notificationPolicy(projectId,ownerUid,env){return await r2JSON(env,NOTIFICATION_PREFIX+'projects/'+projectId+'/policy.json')||defaultNotificationPolicy(ownerUid)}
+async function notificationPreferences(projectId,uid,identity,env){return await r2JSON(env,NOTIFICATION_PREFIX+'projects/'+projectId+'/members/'+uid+'/preferences.json')||defaultNotificationPreferences(identity)}
+function setting(map,key,fallback=true){return Object.prototype.hasOwnProperty.call(map||{},key)?map[key]!==false:fallback}
+function notificationAllowed(policy,member,kind,key){
+ const global=kind==='channel'?policy.allowedChannels:policy.allowedEvents;
+ const roleMap=(kind==='channel'?policy.roleChannels:policy.roleEvents)?.[member.role];
+ const userMap=(kind==='channel'?policy.userChannels:policy.userEvents)?.[member.uid];
+ return setting(global,key,kind==='channel'?key==='in_app':true)&&setting(roleMap,key,true)&&setting(userMap,key,true);
+}
+function effectiveNotification(policy,prefs,member,eventType){
+ const channels={};
+ for(const key of ['in_app','web_push','email','telegram','whatsapp','signal','slack','discord','sms','ios_push'])channels[key]=notificationAllowed(policy,member,'channel',key)&&setting(prefs.channels,key,key==='in_app');
+ const eventAllowed=notificationAllowed(policy,member,'event',eventType);
+ return{eventAllowed,channels};
+}
+async function snagNotificationInbox(env,projectId,uid,limit=80){
+ const prefix=NOTIFICATION_PREFIX+'projects/'+projectId+'/inbox/'+uid+'/',page=await env.SNAG_MEDIA.list({prefix,limit:Math.min(200,limit)}),items=[];
+ for(const item of page.objects){const x=await r2JSON(env,item.key);if(x)items.push(x)}
+ return items.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+}
 async function objectReadAccess(key,identity,env){
   const parts=key.split('/'),projectId=projectFromKey(key);await projectAccess(projectId,identity,env);
   if(parts[2]==='snags'&&parts[3]){
