@@ -73,6 +73,8 @@ jobs:
           }
           if(!worker.includes("scope==='policy'")||!worker.includes('Owner access required')) throw new Error('Owner notification policy enforcement missing');
           if(!worker.includes('userChannels')||!worker.includes('userEvents')) throw new Error('Per-user notification ceiling missing');
+          if(!worker.includes("notificationAllowed(policy,target,'channel',key)")||!worker.includes("notificationAllowed(policy,target,'event',key)")) throw new Error('Recipient preference save is not enforcing the owner ceiling');
+          if(!worker.includes("member?.role==='owner'")||!app.includes("role==='owner')return true")) throw new Error('Owner self-notification exemption missing');
           if(!html.includes('ownerNotificationControls')||!html.includes('myNotificationSettings')) throw new Error('Notification settings UI missing');
           const pushWorker=fs.readFileSync('onesignal/OneSignalSDKWorker.js','utf8');
           if(!pushWorker.includes('OneSignalSDK.sw.js')||!app.includes('enableSnagWebPush')) throw new Error('OneSignal push worker missing or not wired');
