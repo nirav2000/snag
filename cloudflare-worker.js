@@ -96,6 +96,14 @@ async function sharedNotificationProviders(env){
   return (await r.json()).providers||fallback;
  }catch{return fallback}
 }
+async function sharedNotificationPublicConfig(env){
+ const delivery=String(env.APPS_NOTIFICATION_ENDPOINT||'https://apps-monitor-api.nirav2000-github.workers.dev/notifications/deliver'),endpoint=delivery.replace(/\/deliver(?:\?.*)?$/,'/public-config');
+ try{
+  const r=await fetch(endpoint,{headers:{Accept:'application/json'}});
+  if(!r.ok)return{webPush:{configured:false,appId:''}};
+  const data=await r.json();return data||{webPush:{configured:false,appId:''}};
+ }catch{return{webPush:{configured:false,appId:''}}}
+}
 async function notificationRoute(request,env,headers,url){
  if(!allowedOrigin(request,env))return new Response('Forbidden origin',{status:403,headers});
  headers={...headers,'Cache-Control':'no-store'};
@@ -112,8 +120,8 @@ async function notificationRoute(request,env,headers,url){
   let target=actor;
   if(targetUid!==identity.uid)target=await notificationMember(projectId,targetUid,identity,env);
   const [policy,prefs]=await Promise.all([notificationPolicy(projectId,ownerUid,env),notificationPreferences(projectId,targetUid,targetUid===identity.uid?identity:null,env)]);
-  const providers=await sharedNotificationProviders(env);
-  return Response.json({ok:true,projectId,viewer:{uid:identity.uid,role:actor.role,owner:identity.uid===ownerUid},target,policy,preferences:prefs,providers,effective:{channels:Object.fromEntries(Object.keys(defaultNotificationPolicy().allowedChannels).map(k=>[k,notificationAllowed(policy,target,'channel',k)&&setting(prefs.channels,k,k==='in_app')])),events:Object.fromEntries(Object.keys(defaultNotificationPolicy().allowedEvents).map(k=>[k,notificationAllowed(policy,target,'event',k)&&setting(prefs.events,k,true)]))}},{headers});
+  const [providers,publicConfig]=await Promise.all([sharedNotificationProviders(env),sharedNotificationPublicConfig(env)]);
+  return Response.json({ok:true,projectId,viewer:{uid:identity.uid,role:actor.role,owner:identity.uid===ownerUid},target,policy,preferences:prefs,providers,publicConfig,effective:{channels:Object.fromEntries(Object.keys(defaultNotificationPolicy().allowedChannels).map(k=>[k,notificationAllowed(policy,target,'channel',k)&&setting(prefs.channels,k,k==='in_app')])),events:Object.fromEntries(Object.keys(defaultNotificationPolicy().allowedEvents).map(k=>[k,notificationAllowed(policy,target,'event',k)&&setting(prefs.events,k,true)]))}},{headers});
  }
 
  if(url.pathname==='/notifications/settings'&&request.method==='POST'){
