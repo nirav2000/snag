@@ -8,6 +8,7 @@ on:
       - "app.js"
       - "wrangler.jsonc"
       - "styles.css"
+      - "onesignal/**"
       - "index.html"
       - "firebase-config.js"
       - "legacy-bridge.html"
@@ -73,5 +74,7 @@ jobs:
           if(!worker.includes("scope==='policy'")||!worker.includes('Owner access required')) throw new Error('Owner notification policy enforcement missing');
           if(!worker.includes('userChannels')||!worker.includes('userEvents')) throw new Error('Per-user notification ceiling missing');
           if(!html.includes('ownerNotificationControls')||!html.includes('myNotificationSettings')) throw new Error('Notification settings UI missing');
+          const pushWorker=fs.readFileSync('onesignal/OneSignalSDKWorker.js','utf8');
+          if(!pushWorker.includes('OneSignalSDK.sw.js')||!app.includes('enableSnagWebPush')) throw new Error('OneSignal push worker missing or not wired');
           console.log('Snag notification wiring invariants OK');
           NODE
