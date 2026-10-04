@@ -372,6 +372,7 @@ async function emitSnagNotification(type,snag,eventId){
 
 function notificationPolicyAllowed(state,kind,key){
   const policy=state?.policy||{},target=state?.target||{},uid=target.uid||'',role=target.role||'member';
+  if(target.owner===true||role==='owner')return true;
   const global=kind==='channel'?policy.allowedChannels:policy.allowedEvents;
   const roleMap=(kind==='channel'?policy.roleChannels:policy.roleEvents)?.[role];
   const userMap=(kind==='channel'?policy.userChannels:policy.userEvents)?.[uid];
