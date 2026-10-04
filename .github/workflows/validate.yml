@@ -6,6 +6,9 @@ on:
     branches: ["main"]
     paths:
       - "app.js"
+      - "wrangler.jsonc"
+      - "styles.css"
+      - "index.html"
       - "firebase-config.js"
       - "legacy-bridge.html"
       - "version-lab.html"
@@ -56,4 +59,19 @@ jobs:
           const lab=fs.readFileSync('version-lab.html','utf8');
           if(!lab.includes("loadCurrentText('firebase-config.js')")) throw new Error('Version Lab is not using central cloud config');
           console.log('Cloud config and Version Lab wiring look correct.');
+          NODE
+      - name: Notification wiring invariants
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const app=fs.readFileSync('app.js','utf8');
+          const html=fs.readFileSync('index.html','utf8');
+          const worker=fs.readFileSync('cloudflare-worker.js','utf8');
+          for(const event of ['snag.created','snag.updated','snag.comment_added','snag.status_changed']){
+            if(!app.includes(event)||!worker.includes(event)) throw new Error('Missing notification event '+event);
+          }
+          if(!worker.includes("scope==='policy'")||!worker.includes('Owner access required')) throw new Error('Owner notification policy enforcement missing');
+          if(!worker.includes('userChannels')||!worker.includes('userEvents')) throw new Error('Per-user notification ceiling missing');
+          if(!html.includes('ownerNotificationControls')||!html.includes('myNotificationSettings')) throw new Error('Notification settings UI missing');
+          console.log('Snag notification wiring invariants OK');
           NODE
