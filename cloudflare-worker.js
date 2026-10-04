@@ -152,6 +152,11 @@ async function notificationRoute(request,env,headers,url){
   let body;try{body=await request.json()}catch{return new Response('Invalid JSON',{status:400,headers})}
   const targetUid=String(body.targetUid||identity.uid).slice(0,180);
   if(targetUid!==identity.uid&&identity.uid!==ownerUid)return new Response('Owner access required',{status:403,headers});
+  if(body.all===true){
+   const items=await snagNotificationInbox(env,projectId,targetUid,200),readAt=new Date().toISOString();
+   for(const item of items){if(!item.id||item.unread===false)continue;item.unread=false;item.readAt=readAt;await putR2JSON(env,NOTIFICATION_PREFIX+'projects/'+projectId+'/inbox/'+targetUid+'/'+item.id+'.json',item)}
+   return Response.json({ok:true,updated:items.filter(x=>x.unread!==false).length},{headers});
+  }
   const id=String(body.id||'').replace(/[^A-Za-z0-9._-]/g,'').slice(0,120);
   if(!id)return new Response('id required',{status:400,headers});
   const key=NOTIFICATION_PREFIX+'projects/'+projectId+'/inbox/'+targetUid+'/'+id+'.json',item=await r2JSON(env,key);
