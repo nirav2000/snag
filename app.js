@@ -416,7 +416,7 @@ async function makePreviewFile(file,max=480){
   if(!file?.type?.startsWith('image/')||file.type==='image/gif')return null;
   try{
     const bitmap=await createImageBitmap(file),scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
-    if(scale>=1&&file.size<180000){bitmap.close?.();return file}
+    if(scale>=1&&file.size<180000){bitmap.close?.();return new File([file],(file.name||'preview').replace(/\.[^.]+$/,'')+'-preview'+((file.name||'').match(/\.[^.]+$/)?.[0]||'.jpg'),{type:file.type||'image/jpeg'})}
     const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
     canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();
     const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.74));
