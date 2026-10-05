@@ -68,13 +68,6 @@ async function snagNotificationInbox(env,projectId,uid,limit=80){
  for(const item of page.objects){const x=await r2JSON(env,item.key);if(x)items.push(x)}
  return items.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
 }
-async function objectReadAccess(key,identity,env){
-  const parts=key.split('/'),projectId=projectFromKey(key);await projectAccess(projectId,identity,env);
-  if(parts[2]==='snags'&&parts[3]){
-    const r=await fetch(fsBase(env)+'/snag_projects/'+encodeURIComponent(projectId)+'/snags/'+encodeURIComponent(parts[3]),{headers:{Authorization:'Bearer '+identity.token}});
-    if(!r.ok)throw new Response(r.status===403?'Forbidden':'Snag unavailable',{status:r.status===403?403:404});
-  }
-}
 
 function notificationEventText(type,snag){
  const ref=String(docValue(snag,'ref')||'Snag'),title=String(docValue(snag,'title')||''),status=String(docValue(snag,'status')||'');
