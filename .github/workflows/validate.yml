@@ -11,6 +11,7 @@ on:
       - "version-lab.html"
       - "firestore.rules"
       - "cloudflare-worker.js"
+      - "firebase-messaging-sw.js"
       - "release.js"
       - "welcome.html"
       - "privacy.html"
@@ -44,6 +45,19 @@ jobs:
           fs.writeFileSync('/tmp/legacy-bridge.mjs',scripts.map(x=>x[1]).join('\n'));
           NODE
           node --check /tmp/legacy-bridge.mjs
+      - name: Shared Notifications adoption
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const app=fs.readFileSync('app.js','utf8'),html=fs.readFileSync('index.html','utf8'),worker=fs.readFileSync('cloudflare-worker.js','utf8'),push=fs.readFileSync('firebase-messaging-sw.js','utf8');
+          for(const event of ['snag.created','snag.updated','snag.comment_added','snag.status_changed']) if(!app.includes(event)||!worker.includes(event)) throw new Error('Missing notification event '+event);
+          if(!app.includes('Apps/notifications/v1/index.js')) throw new Error('Shared Notifications SDK is not consumed');
+          if(!html.includes('enableWebPushNotifications')) throw new Error('User notification activation control missing');
+          if(!app.includes('registerWebPush')||!push.includes('firebase-messaging-compat.js')) throw new Error('FCM push activation missing');
+          if(!worker.includes("scope==='policy'")||!worker.includes('Owner access required')) throw new Error('Owner notification policy enforcement missing');
+          if(!worker.includes("notificationAllowed(policy,target,'channel',key)")||!worker.includes("notificationAllowed(policy,target,'event',key)")) throw new Error('Recipient policy ceiling missing');
+          console.log('Shared Notifications adoption invariants OK');
+          NODE
       - name: Check central cloud configuration
         run: |
           node <<'NODE'
