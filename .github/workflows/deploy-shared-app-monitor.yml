@@ -100,6 +100,17 @@ jobs:
           curl --fail --silent --show-error -H 'Origin: https://nirav2000.github.io' 'https://apps-monitor-api.nirav2000-github.workers.dev/app-monitor/developer-config?app=Snag'
           echo
 
+      - name: Verify consumer notification registry
+        run: |
+          BODY="$(curl --fail --silent --show-error -H 'Origin: https://nirav2000.github.io' 'https://apps-monitor-api.nirav2000-github.workers.dev/notifications/public-config?app=openday')"
+          echo "$BODY"
+          node -e 'const x=JSON.parse(process.argv[1]); if(x.consumerRegistration!==true) process.exit(1)' "$BODY"
+          CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST -H 'Origin: https://nirav2000.github.io' -H 'Content-Type: application/json' --data '{"app":"openday","notification":{"title":"probe"}}' 'https://apps-monitor-api.nirav2000-github.workers.dev/notifications/consumer/deliver')"
+          if [ "$CODE" != "401" ]; then
+            echo "::error::Expected protected consumer delivery route to require bridge authentication (401), got $CODE"
+            exit 1
+          fi
+
       - name: Verify notification route exists
         run: |
           CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' -H 'Origin: https://nirav2000.github.io' 'https://apps-monitor-api.nirav2000-github.workers.dev/app-monitor/notifications/state')"
