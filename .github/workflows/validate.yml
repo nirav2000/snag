@@ -56,6 +56,9 @@ jobs:
           if(!app.includes('registerWebPush')||!push.includes('firebase-messaging-compat.js')) throw new Error('FCM push activation missing');
           if(!worker.includes("scope==='policy'")||!worker.includes('Owner access required')) throw new Error('Owner notification policy enforcement missing');
           if(!worker.includes("notificationAllowed(policy,target,'channel',key)")||!worker.includes("notificationAllowed(policy,target,'event',key)")) throw new Error('Recipient policy ceiling missing');
+          if(!app.includes('maybePresentNotificationChoice')||!app.includes('notificationPromptKey')) throw new Error('First-open notification choice missing');
+          if(!app.includes('previewKey')||!app.includes('makePreviewFile')||!app.includes('backfillMediaPreviews')) throw new Error('Fast image preview workflow missing');
+          if(!app.includes("cache:'default'")) throw new Error('Private media fetch still bypasses browser cache');
           console.log('Shared Notifications adoption invariants OK');
           NODE
       - name: Check central cloud configuration
