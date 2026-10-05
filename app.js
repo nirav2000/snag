@@ -1,6 +1,6 @@
 const APP_BUILD='2026.09.28.1053';
 const FIREBASE_VERSION='12.2.1';
-const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1',userId:'snag-recorder-user-id-v1',migration:'snag-recorder-migration-v2'};
+const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1',userId:'snag-recorder-user-id-v1',migration:'snag-recorder-migration-v2',notificationPrompt:'snag-notification-choice-v1'};
 const now=()=>new Date().toISOString();
 const uid=()=>crypto.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const escapeHtml=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -95,26 +95,52 @@ function projectLocations(){const p=project();return p?.locations?.length?p.loca
 function projectAssignees(){const p=project();return p?.assignees?.length?p.assignees:['Builder','Electrician','Plumber','Carpenter','Decorator','Glazier','Client'];}
 
 const privateMediaRuntimeCache=new Map();
-function mediaAttr(item,attr='src'){
-  if(item?.storage==='r2'&&item.key)return `${attr}="" data-private-media-key="${escapeHtml(item.key)}" data-private-media-attr="${attr}"`;
-  return `${attr}="${escapeHtml(item?.url||'')}"`;
+let privateMediaObserver=null;
+function mediaVariant(item,variant='full'){
+  if(variant==='preview'&&item?.previewKey)return{...item,key:item.previewKey,url:item.previewUrl||'',type:item.previewType||'image/jpeg'};
+  return item;
+}
+function mediaAttr(item,attr='src',variant='full'){
+  const source=mediaVariant(item,variant);
+  if(source?.storage==='r2'&&source.key)return `${attr}="" data-private-media-key="${escapeHtml(source.key)}" data-private-media-attr="${attr}"`;
+  return `${attr}="${escapeHtml(source?.url||'')}"`;
+}
+async function privateMediaBlob(item){
+  if(!item?.key||!firebase?.auth?.currentUser)throw new Error('Private media is unavailable');
+  const token=await firebase.auth.currentUser.getIdToken();
+  const r=await fetch(`${window.SNAG_R2_API.replace(/\/$/,'')}/objects/${item.key.split('/').map(encodeURIComponent).join('/')}`,{headers:{Authorization:`Bearer ${token}`},cache:'default'});
+  if(!r.ok)throw new Error('Private media could not be loaded ('+r.status+')');
+  return r.blob();
 }
 async function privateMediaRuntimeUrl(item){
   if(!item)return '';
   if(item.storage!=='r2'||!item.key)return item.url||'';
   if(privateMediaRuntimeCache.has(item.key))return privateMediaRuntimeCache.get(item.key);
-  if(!firebase?.auth?.currentUser)return item.url||'';
-  const token=await firebase.auth.currentUser.getIdToken();
-  const r=await fetch(`${window.SNAG_R2_API.replace(/\/$/,'')}/objects/${item.key.split('/').map(encodeURIComponent).join('/')}`,{headers:{Authorization:`Bearer ${token}`},cache:'no-store'});
-  if(!r.ok)throw new Error('Private media could not be loaded ('+r.status+')');
-  const blob=await r.blob(),url=URL.createObjectURL(blob);privateMediaRuntimeCache.set(item.key,url);return url;
+  const blob=await privateMediaBlob(item),url=URL.createObjectURL(blob);privateMediaRuntimeCache.set(item.key,url);return url;
+}
+async function hydratePrivateMediaElement(el){
+  const key=el.dataset.privateMediaKey,attr=el.dataset.privateMediaAttr||'src';
+  if(!key||el.dataset.privateMediaLoaded==='1'||el.dataset.privateMediaLoading==='1')return;
+  el.dataset.privateMediaLoading='1';
+  try{
+    const url=await privateMediaRuntimeUrl({storage:'r2',key});el.setAttribute(attr,url);el.dataset.privateMediaLoaded='1';
+  }catch(error){console.warn('Private media hydrate failed',key,error)}
+  finally{delete el.dataset.privateMediaLoading}
+}
+function ensurePrivateMediaObserver(){
+  if(privateMediaObserver||!('IntersectionObserver'in window))return privateMediaObserver;
+  privateMediaObserver=new IntersectionObserver(entries=>{
+    for(const entry of entries)if(entry.isIntersecting){privateMediaObserver.unobserve(entry.target);hydratePrivateMediaElement(entry.target)}
+  },{rootMargin:'240px 0px'});
+  return privateMediaObserver;
 }
 async function hydratePrivateMedia(root=document){
-  const els=[...root.querySelectorAll('[data-private-media-key]')];
-  await Promise.allSettled(els.map(async el=>{
-    const key=el.dataset.privateMediaKey,attr=el.dataset.privateMediaAttr||'src';if(!key||el.dataset.privateMediaLoaded==='1')return;
-    const url=await privateMediaRuntimeUrl({storage:'r2',key});el.setAttribute(attr,url);el.dataset.privateMediaLoaded='1';
-  }));
+  const els=[...root.querySelectorAll('[data-private-media-key]')].filter(el=>el.dataset.privateMediaLoaded!=='1');
+  const observer=ensurePrivateMediaObserver();
+  for(const el of els){
+    if(!observer||el.closest('dialog[open]')||el.getClientRects().length&&el.getBoundingClientRect().top<innerHeight+240)hydratePrivateMediaElement(el);
+    else observer.observe(el);
+  }
 }
 
 const SNAG_NOTIFICATION_EVENTS=[
@@ -188,6 +214,28 @@ async function enableSnagWebPush(){
   }catch(error){status.textContent='Could not enable browser push: '+String(error?.message||error)}
 }
 
+function notificationPromptKey(){return LS.notificationPrompt+':'+(firebase?.auth?.currentUser?.uid||snagUserId())}
+function notificationChoicePresented(){return localStorage.getItem(notificationPromptKey())==='1'}
+function markNotificationChoicePresented(){localStorage.setItem(notificationPromptKey(),'1')}
+async function maybePresentNotificationChoice(){
+  if(!firebase?.auth?.currentUser||notificationChoicePresented()||!$('notificationChoiceDialog'))return;
+  try{
+    const state=await snagNotificationRequest('/notifications/settings');
+    if(!state)return;
+    markNotificationChoicePresented();
+    setTimeout(()=>{if(!$('notificationChoiceDialog').open)$('notificationChoiceDialog').showModal()},250);
+  }catch(error){console.warn('Notification choice could not be presented yet',error)}
+}
+async function acceptInitialNotifications(){
+  $('notificationChoiceDialog')?.close();
+  await enableSnagWebPush();
+  if($('webPushRegistrationStatus')?.textContent.includes('Home Screen')){
+    $('settingsDialog')?.showModal();
+    $('notificationSettingsCard')?.scrollIntoView({behavior:'smooth',block:'center'});
+  }
+}
+function deferInitialNotifications(){$('notificationChoiceDialog')?.close()}
+
 async function requireCommercialAccess(feature){
   if(!window.SnagCommercial?.check)return true;
   try{return await window.SnagCommercial.check(feature)}catch(e){console.warn('Commercial access check failed open',e);return true}
@@ -241,7 +289,7 @@ function setNav(name){
 function renderRooms(){
   const host=$('roomGrid');if(!host)return;
   const rooms=projectLocations();
-  host.innerHTML=rooms.map(room=>{const rs=visibleProjectSnags().filter(s=>(s.location||'').toLowerCase()===room.toLowerCase()),open=rs.filter(s=>s.status==='open').length,progress=rs.filter(s=>s.status==='in-progress').length,review=rs.filter(s=>s.status==='review').length,unread=rs.filter(isUnread).length,photo=project()?.roomCovers?.[room]||rs.map(s=>s.media?.find(m=>m.type?.startsWith('image'))).find(Boolean);return `<button class="room-card" type="button" data-room="${escapeHtml(room)}">${photo?`<img ${mediaAttr(photo)} alt="">`:'<div class="room-placeholder">⌂</div>'}<div class="room-card-copy"><strong>${escapeHtml(room)}</strong><span>${open?open+' open ':''}${progress?progress+' in progress ':''}${review?review+' review ':''}${!rs.length?'All clear':''}</span></div>${unread?`<i class="room-unread-dot"></i>`:''}</button>`;}).join('');
+  host.innerHTML=rooms.map(room=>{const rs=visibleProjectSnags().filter(s=>(s.location||'').toLowerCase()===room.toLowerCase()),open=rs.filter(s=>s.status==='open').length,progress=rs.filter(s=>s.status==='in-progress').length,review=rs.filter(s=>s.status==='review').length,unread=rs.filter(isUnread).length,photo=project()?.roomCovers?.[room]||rs.map(s=>s.media?.find(m=>m.type?.startsWith('image'))).find(Boolean);return `<button class="room-card" type="button" data-room="${escapeHtml(room)}">${photo?`<img loading="lazy" decoding="async" ${mediaAttr(photo,'src','preview')} alt="">`:'<div class="room-placeholder">⌂</div>'}<div class="room-card-copy"><strong>${escapeHtml(room)}</strong><span>${open?open+' open ':''}${progress?progress+' in progress ':''}${review?review+' review ':''}${!rs.length?'All clear':''}</span></div>${unread?`<i class="room-unread-dot"></i>`:''}</button>`;}).join('');
   host.querySelectorAll('[data-room]').forEach(b=>b.onclick=()=>{view.search=b.dataset.room;setNav('snags');$('searchInput').value=view.search;renderList();});
 }
 
@@ -261,8 +309,8 @@ function render(){renderProject();renderStats();renderFilters();renderHomeActive
 function renderProject(){const p=project();if(!p)return;const cover=$('projectCover');if(cover){cover.classList.toggle('hidden',!p.coverImage?.url);cover.innerHTML=p.coverImage?.url?`<img ${mediaAttr(p.coverImage)} alt="Project cover">`:'';const removeCover=$('removeProjectCoverButton');if(removeCover)removeCover.classList.toggle('hidden',!p.coverImage?.url);}$('projectName').textContent=p.name;$('projectAddress').textContent=p.address||'No address/context';$('projectTypeLabel').textContent=`${p.type.toUpperCase()} PROJECT`;$('profilePill').textContent=`${profile.role} · ${profile.name}`;const live=cloudStatus.state==='connected',pill=$('syncPill');pill.className=`sync-pill ${live?'connected':'local'}`;pill.innerHTML=`<span class="dot"></span><span>${live?'Live sync':cloudStatus.state==='error'?'Cloud error':'Connecting…'}</span>`;pill.title=cloudStatus.message||'';}
 function renderStats(){const s=visibleProjectSnags(),active=s.filter(x=>x.status!=='resolved'&&!x.archived),progress=s.filter(x=>x.status==='in-progress'&&!x.archived),review=s.filter(x=>x.status==='review'&&!x.archived),resolved=s.filter(x=>x.status==='resolved');$('statActive').textContent=active.length;$('statProgress').textContent=progress.length;$('statReview').textContent=review.length;$('statResolved').textContent=resolved.length;if($('heroUnresolved'))$('heroUnresolved').textContent=active.length;if($('heroRequireAction'))$('heroRequireAction').textContent=s.filter(x=>['open','review'].includes(x.status)&&!x.archived).length;if($('heroRecentlyUpdated')){const cutoff=Date.now()-86400000;$('heroRecentlyUpdated').textContent=s.filter(x=>new Date(x.updatedAt).getTime()>=cutoff).length;}document.querySelectorAll('.stat-card').forEach(x=>x.classList.toggle('active',x.dataset.statFilter===view.status));}
 function renderFilters(){let n=0;if(view.category!=='all')n++;if(view.priority!=='all')n++;if(view.archived)n++;$('filterCount').textContent=n?`(${n})`:'';$('categoryFilter').value=view.category;$('priorityFilter').value=view.priority;$('archiveFilter').checked=view.archived;$('sortSelect').value=view.sort;}
-function thumbHtml(s){const m=s.media?.[0];if(!m)return `<div class="snag-thumb">${s.category==='App / software'?'⌘':s.category==='Business process'?'⇄':'⌂'}</div>`;if(m.type?.startsWith('image'))return `<div class="snag-thumb"><img ${mediaAttr(m)} alt=""></div>`;if(m.type?.startsWith('video'))return `<div class="snag-thumb"><video ${mediaAttr(m)} muted playsinline></video></div>`;return '<div class="snag-thumb">♪</div>';}
-function activityThumb(s,u){const m=u?.media?.find(x=>x.type?.startsWith('image'))||s.media?.find(x=>x.type?.startsWith('image'));return m?`<div class="activity-thumb"><img ${mediaAttr(m)} alt=""></div>`:'<div class="activity-thumb activity-placeholder">⌂</div>';}
+function thumbHtml(s){const m=s.media?.[0];if(!m)return `<div class="snag-thumb">${s.category==='App / software'?'⌘':s.category==='Business process'?'⇄':'⌂'}</div>`;if(m.type?.startsWith('image'))return `<div class="snag-thumb"><img loading="lazy" decoding="async" ${mediaAttr(m,'src','preview')} alt=""></div>`;if(m.type?.startsWith('video'))return `<div class="snag-thumb"><video ${mediaAttr(m)} muted playsinline></video></div>`;return '<div class="snag-thumb">♪</div>';}
+function activityThumb(s,u){const m=u?.media?.find(x=>x.type?.startsWith('image'))||s.media?.find(x=>x.type?.startsWith('image'));return m?`<div class="activity-thumb"><img loading="lazy" decoding="async" ${mediaAttr(m,'src','preview')} alt=""></div>`:'<div class="activity-thumb activity-placeholder">⌂</div>';}
 function activityKind(item){
   if(!item.u)return 'new-snag';
   if(item.u.type==='status'&&/review/i.test(item.u.text||''))return 'review';
@@ -300,7 +348,7 @@ function selectProject(id){selectedProjectId=id;state.selectedProjectId=id;saveS
 function renderSettings(){const p=project();if($('guidesEnabledInput'))$('guidesEnabledInput').checked=guidesEnabled();if($('projectLocationsInput'))$('projectLocationsInput').value=(p?.locations||[]).join('\n');if($('projectAssigneesInput'))$('projectAssigneesInput').value=(p?.assignees||[]).join('\n');$('profileNameInput').value=profile.name;$('profileRoleInput').value=profile.role;const cfg=window.SNAG_FIREBASE_CONFIG||null;if($('firebaseConfigInput')){$('firebaseConfigInput').value=cfg?JSON.stringify(cfg,null,2):'';$('firebaseConfigInput').readOnly=true}const user=firebase?.auth?.currentUser,live=!!user;$('firebaseStatusTitle').textContent=live?'Connected':'Local mode';$('firebaseBadge').className=`badge ${live?'good':'neutral'}`;$('firebaseBadge').textContent=live?'Connected':'Not signed in';$('shareWarning').classList.toggle('hidden',live);if($('accountProtectionStatus')){$('accountProtectionStatus').textContent=!user?'Cloud connection required':user.isAnonymous?'Temporary access on this device':'Protected account · '+(user.email||user.providerData?.[0]?.providerId||'signed in');$('accountProtectionStatus').className=user&&!user.isAnonymous?'notice success':'notice'}if($('protectAccountFields'))$('protectAccountFields').classList.toggle('hidden',!!user&&!user.isAnonymous);if($('protectedAccountActions'))$('protectedAccountActions').classList.toggle('hidden',!user||user.isAnonymous);mountSnagNotificationSettings();}
 function openDetail(id){detailId=id;const s=state.snags.find(x=>x.id===id);if(!s)return;markSnagSeen(id);$('detailRef').textContent=s.ref;$('detailTitle').textContent=s.title;renderDetail(s);$('detailDrawer').classList.remove('hidden');$('backdrop').classList.remove('hidden');$('detailDrawer').setAttribute('aria-hidden','false');queueMicrotask(()=>hydratePrivateMedia($('detailDrawer')));}
 function closeDetail(){$('detailDrawer').classList.add('hidden');$('backdrop').classList.add('hidden');$('detailDrawer').setAttribute('aria-hidden','true');detailId=null;}
-function mediaHtml(items=[],context='snag'){if(!items.length)return'';return `<div class="media-grid">${items.map((m,i)=>m.type?.startsWith('image')?`<div class="media-item media-image-card"><a ${mediaAttr(m,'href')} target="_blank"><img ${mediaAttr(m)} alt="Attachment"></a><div class="media-version-actions"><button type="button" data-annotate-media="${i}" data-media-context="${escapeHtml(context)}">✎ Mark up</button>${m.originalUrl?`<a ${mediaAttr({url:m.originalUrl,key:m.originalKey,storage:m.storage},'href')} target="_blank">View original</a>`:''}</div></div>`:m.type?.startsWith('video')?`<div class="media-item"><video ${mediaAttr(m)} controls playsinline></video></div>`:m.type?.startsWith('audio')?`<div class="media-item"><audio ${mediaAttr(m)} controls></audio></div>`:`<a class="media-item" ${mediaAttr(m,'href')} target="_blank">Open file</a>`).join('')}</div>`;}
+function mediaHtml(items=[],context='snag'){if(!items.length)return'';return `<div class="media-grid">${items.map((m,i)=>m.type?.startsWith('image')?`<div class="media-item media-image-card"><a ${mediaAttr(m,'href')} target="_blank"><img decoding="async" ${mediaAttr(m)} alt="Attachment"></a><div class="media-version-actions"><button type="button" data-annotate-media="${i}" data-media-context="${escapeHtml(context)}">✎ Mark up</button>${m.originalUrl?`<a ${mediaAttr({url:m.originalUrl,key:m.originalKey,storage:m.storage},'href')} target="_blank">View original</a>`:''}</div></div>`:m.type?.startsWith('video')?`<div class="media-item"><video ${mediaAttr(m)} controls playsinline></video></div>`:m.type?.startsWith('audio')?`<div class="media-item"><audio ${mediaAttr(m)} controls></audio></div>`:`<a class="media-item" ${mediaAttr(m,'href')} target="_blank">Open file</a>`).join('')}</div>`;}
 function renderDetail(s){
   $('detailContent').innerHTML=`
     <section class="detail-hero compact-detail-hero">
@@ -364,6 +412,17 @@ async function mergeRoom(from,to){if(!to)return toast('Choose the room to merge 
 async function removeRoom(room){const p=project();if(projectSnags().some(s=>(s.location||'').toLowerCase()===room.toLowerCase()))return toast('Merge this room first — it still has snags');p.locations=projectLocations().filter(x=>x.toLowerCase()!==room.toLowerCase());if(p.roomCovers)delete p.roomCovers[room];p.updatedAt=now();saveState();if(firebase)await ensureProjectRemote();render();openRoomManager();toast('Room removed');}
 function renderTempPreview(files,host){host.innerHTML=files.map((f,i)=>`<div class="preview-chip">${f.type.startsWith('image')?`<img src="${URL.createObjectURL(f)}"><button type="button" class="preview-annotate" data-annotate-file="${i}">✎</button>`:f.type.startsWith('video')?`<video src="${URL.createObjectURL(f)}"></video>`:'♪'}<button type="button" data-i="${i}">×</button></div>`).join('');host.querySelectorAll('[data-annotate-file]').forEach(b=>b.onclick=e=>{e.stopPropagation();openAnnotationForPending(files,Number(b.dataset.annotateFile),host)});}
 async function optimiseMediaFile(file){if(!file.type?.startsWith('image/')||file.type==='image/gif'||file.size<900000)return file;try{const bitmap=await createImageBitmap(file),max=2000,scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');canvas.width=Math.round(bitmap.width*scale);canvas.height=Math.round(bitmap.height*scale);canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.82));return blob?new File([blob],(file.name||'photo').replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'}):file}catch(e){console.warn('Photo compression failed',e);return file}}
+async function makePreviewFile(file,max=480){
+  if(!file?.type?.startsWith('image/')||file.type==='image/gif')return null;
+  try{
+    const bitmap=await createImageBitmap(file),scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
+    if(scale>=1&&file.size<180000){bitmap.close?.();return file}
+    const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+    canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.74));
+    return blob?new File([blob],(file.name||'preview').replace(/\.[^.]+$/,'')+'-preview.jpg',{type:'image/jpeg'}):null;
+  }catch(error){console.warn('Preview generation failed',error);return null}
+}
 async function uploadToR2(file,pathPrefix){
   if(!window.SNAG_R2_API||!firebase?.auth?.currentUser)throw new Error('R2 upload is not configured');
   const token=await firebase.auth.currentUser.getIdToken();
@@ -373,6 +432,18 @@ async function uploadToR2(file,pathPrefix){
   const data=await response.json();
   return {url:data.url,key:data.key||key,name:file.name,type:file.type,size:file.size,local:false,storage:'r2'};
 }
+async function uploadMediaWithPreview(file,pathPrefix){
+  const media=await uploadToR2(file,pathPrefix);
+  if(!file.type?.startsWith('image/')||file.type==='image/gif')return media;
+  const preview=await makePreviewFile(file);
+  if(!preview)return media;
+  try{
+    const p=await uploadToR2(preview,pathPrefix+'/previews');
+    media.previewUrl=p.url;media.previewKey=p.key;media.previewType=p.type;media.previewSize=p.size;
+  }catch(error){console.warn('Preview upload failed; keeping full image available',error)}
+  return media;
+}
+
 async function prepareMedia(files,pathPrefix){
   const result=[];
   for(const original of files){
@@ -381,10 +452,10 @@ async function prepareMedia(files,pathPrefix){
       if(original._originalFile){
         const base=await optimiseMediaFile(original._originalFile);
         const originalMedia=await uploadToR2(base,pathPrefix+'/originals');
-        const annotated=await uploadToR2(file,pathPrefix);
+        const annotated=await uploadMediaWithPreview(file,pathPrefix);
         annotated.originalUrl=originalMedia.url;annotated.originalKey=originalMedia.key;annotated.annotated=true;
         result.push(annotated);
-      }else result.push(await uploadToR2(file,pathPrefix));
+      }else result.push(await uploadMediaWithPreview(file,pathPrefix));
     }else{
       if(file.type?.startsWith('video/'))throw new Error('Video needs cloud sync. Firebase is not connected yet.');
       if(file.size>2.5*1024*1024)throw new Error('Photo is too large for local mode. Reconnect Firebase and try again.');
@@ -395,6 +466,39 @@ async function prepareMedia(files,pathPrefix){
   }
   return result;
 }
+async function backfillMediaPreviews(limit=4){
+  if(!firebase?.auth?.currentUser||!window.SNAG_R2_API||!isAdmin())return;
+  let remaining=Math.max(0,Number(limit)||0),changed=false;
+  for(const snag of visibleProjectSnags()){
+    if(!remaining)break;
+    let snagMediaChanged=false;
+    for(const item of snag.media||[]){
+      if(!remaining)break;if(!item?.type?.startsWith('image/')||item.previewKey||item.storage!=='r2'||!item.key)continue;
+      try{
+        const blob=await privateMediaBlob(item),file=new File([blob],item.name||'image.jpg',{type:blob.type||item.type||'image/jpeg'}),preview=await makePreviewFile(file);
+        if(!preview)continue;
+        const p=await uploadToR2(preview,`snag-projects/${selectedProjectId}/snags/${snag.id}/previews`);
+        Object.assign(item,{previewUrl:p.url,previewKey:p.key,previewType:p.type,previewSize:p.size});remaining--;snagMediaChanged=true;changed=true;
+      }catch(error){console.warn('Preview backfill skipped',item.key,error)}
+    }
+    if(snagMediaChanged)await firebase.fsMod.setDoc(firebase.fsMod.doc(firebase.db,'snag_projects',selectedProjectId,'snags',snag.id),{media:snag.media},{merge:true});
+    for(const update of snag.updates||[]){
+      if(!remaining)break;let updateChanged=false;
+      for(const item of update.media||[]){
+        if(!remaining)break;if(!item?.type?.startsWith('image/')||item.previewKey||item.storage!=='r2'||!item.key)continue;
+        try{
+          const blob=await privateMediaBlob(item),file=new File([blob],item.name||'image.jpg',{type:blob.type||item.type||'image/jpeg'}),preview=await makePreviewFile(file);
+          if(!preview)continue;
+          const p=await uploadToR2(preview,`snag-projects/${selectedProjectId}/snags/${snag.id}/updates/${update.id}/previews`);
+          Object.assign(item,{previewUrl:p.url,previewKey:p.key,previewType:p.type,previewSize:p.size});remaining--;updateChanged=true;changed=true;
+        }catch(error){console.warn('Update preview backfill skipped',item.key,error)}
+      }
+      if(updateChanged)await firebase.fsMod.setDoc(firebase.fsMod.doc(firebase.db,'snag_projects',selectedProjectId,'snags',snag.id,'updates',update.id),{media:update.media},{merge:true});
+    }
+  }
+  if(changed){saveState();render()}
+}
+
 async function createSnag(e){
   e.preventDefault();
   if(!await requireCommercialAccess('createSnag'))return;
@@ -843,7 +947,7 @@ async function initFirebase(cfg){
     diagStep('Live listener','running','Starting realtime updates');
     try{await withTimeout(subscribeFirebase(),9000,'Live listener');diagStep('Live listener','ok','Listening')}catch(e){diagStep('Live listener','error',firebaseErrorMessage(e));console.warn(e)}
     clearTimeout(watchdog);if(run!==firebaseRun)return;
-    if(!launchInviteId)setTimeout(()=>maybeShowFirstGuide('owner'),700);render();
+    if(!launchInviteId)setTimeout(()=>maybeShowFirstGuide('owner'),700);render();setTimeout(()=>maybePresentNotificationChoice(),900);setTimeout(()=>backfillMediaPreviews(4),3200);
   }catch(e){
     clearTimeout(watchdog);if(run!==firebaseRun)return;
     const active=cloudDiag.find(x=>x.state==='running');if(active)diagStep(active.name,'error',firebaseErrorMessage(e));
@@ -966,7 +1070,7 @@ async function hardRefreshApp(){
   }catch(e){console.warn(e)}
   const u=new URL(location.href);u.searchParams.set('_build',Date.now());location.replace(u.toString());
 }
-function bind(){bindAnnotationCanvas();$('editSnagForm').onsubmit=saveSnagEdit;$('closeGuideButton').onclick=finishGuide;$('finishGuideButton').onclick=finishGuide;if($('homeSearchInput'))$('homeSearchInput').onchange=e=>{view.search=e.target.value;setNav('snags');$('searchInput').value=view.search;renderList()};if($('homeFilterButton'))$('homeFilterButton').onclick=()=>{setNav('snags');$('filterPanel').classList.remove('hidden')};if($('homeGridButton'))$('homeGridButton').onclick=()=>setNav('snags');if($('seeAllSnags'))$('seeAllSnags').onclick=()=>setNav('snags');document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.onclick=()=>setNav(b.dataset.nav));if($('notificationButton'))$('notificationButton').onclick=()=>{setNav('home');setTimeout(()=>$('recentActivity')?.scrollIntoView({behavior:'smooth',block:'start'}),30)};$('feedbackButton').onclick=()=>{if(window.openSnagFeedback)window.openSnagFeedback();else toast('Feedback tool is loading…')};$('closeMyNotes').onclick=()=>$('myNotesDialog').close();$('addPrivateNote').onclick=addPrivateNote;$('annotationCancel').onclick=()=>$('annotateDialog').close();$('annotationSave').onclick=saveAnnotation;$('annotationUndo').onclick=()=>{annotationState.history.pop();redrawAnnotation()};$('annotationClear').onclick=()=>{annotationState.history=[];redrawAnnotation()};document.querySelectorAll('[data-annotation-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-annotation-tool]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');annotationState.colour=b.dataset.annotationTool==='yellow'?'#facc15':b.dataset.annotationTool==='black'?'#111827':'#ef4444'});document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('projectCoverInput').onchange=e=>{const f=e.target.files?.[0];e.target.value='';if(f)setProjectCover(f)};$('removeProjectCoverButton').onclick=removeProjectCover;$('manageRoomsButton').onclick=openRoomManager;$('openRoomManagerButton').onclick=openRoomManager;$('closeRoomManager').onclick=()=>$('roomManagerDialog').close();$('guidesEnabledInput').onchange=e=>{localStorage.setItem(LS.guidesEnabled,e.target.checked?'1':'0');toast(e.target.checked?'Quick guides enabled':'Quick guides disabled')};$('showGuideNowButton').onclick=()=>showGuide(isAdmin()?'owner':'contractor');$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;if($('syncPill'))$('syncPill').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;setNav('snags');render()});$('createProjectButton').onclick=async()=>{if(!await requireCommercialAccess('createProject'))return;const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProjectSetupButton').onclick=async()=>{const p=project();p.locations=$('projectLocationsInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.assignees=$('projectAssigneesInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.updatedAt=now();saveState();if(firebase)await ensureProjectRemote();render();toast('Project setup saved')};$('createShareLinkButton').onclick=createShareLink;$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));if(firebase?.auth?.currentUser)window.AppMonitor?.identify?.({uid:firebase.auth.currentUser.uid,username:profile.name,provider:firebase.auth.currentUser.providerData?.[0]?.providerId||(firebase.auth.currentUser.isAnonymous?'anonymous':'firebase'),isAnonymous:firebase.auth.currentUser.isAnonymous});render();toast('Identity saved')};if($('protectEmailButton'))$('protectEmailButton').onclick=protectAccessWithEmail;if($('signInProtectedButton'))$('signInProtectedButton').onclick=signInProtectedAccess;if($('resetProtectedPasswordButton'))$('resetProtectedPasswordButton').onclick=sendProtectedPasswordReset;$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});if($('buildBadge'))$('buildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};if($('mobileBuildBadge'))$('mobileBuildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
+function bind(){bindAnnotationCanvas();if($('notificationChoiceEnable'))$('notificationChoiceEnable').onclick=acceptInitialNotifications;if($('notificationChoiceLater'))$('notificationChoiceLater').onclick=deferInitialNotifications;if($('enableWebPushNotifications'))$('enableWebPushNotifications').onclick=enableSnagWebPush;$('editSnagForm').onsubmit=saveSnagEdit;$('closeGuideButton').onclick=finishGuide;$('finishGuideButton').onclick=finishGuide;if($('homeSearchInput'))$('homeSearchInput').onchange=e=>{view.search=e.target.value;setNav('snags');$('searchInput').value=view.search;renderList()};if($('homeFilterButton'))$('homeFilterButton').onclick=()=>{setNav('snags');$('filterPanel').classList.remove('hidden')};if($('homeGridButton'))$('homeGridButton').onclick=()=>setNav('snags');if($('seeAllSnags'))$('seeAllSnags').onclick=()=>setNav('snags');document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.onclick=()=>setNav(b.dataset.nav));if($('notificationButton'))$('notificationButton').onclick=()=>{setNav('home');setTimeout(()=>$('recentActivity')?.scrollIntoView({behavior:'smooth',block:'start'}),30)};$('feedbackButton').onclick=()=>{if(window.openSnagFeedback)window.openSnagFeedback();else toast('Feedback tool is loading…')};$('closeMyNotes').onclick=()=>$('myNotesDialog').close();$('addPrivateNote').onclick=addPrivateNote;$('annotationCancel').onclick=()=>$('annotateDialog').close();$('annotationSave').onclick=saveAnnotation;$('annotationUndo').onclick=()=>{annotationState.history.pop();redrawAnnotation()};$('annotationClear').onclick=()=>{annotationState.history=[];redrawAnnotation()};document.querySelectorAll('[data-annotation-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-annotation-tool]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');annotationState.colour=b.dataset.annotationTool==='yellow'?'#facc15':b.dataset.annotationTool==='black'?'#111827':'#ef4444'});document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('projectCoverInput').onchange=e=>{const f=e.target.files?.[0];e.target.value='';if(f)setProjectCover(f)};$('removeProjectCoverButton').onclick=removeProjectCover;$('manageRoomsButton').onclick=openRoomManager;$('openRoomManagerButton').onclick=openRoomManager;$('closeRoomManager').onclick=()=>$('roomManagerDialog').close();$('guidesEnabledInput').onchange=e=>{localStorage.setItem(LS.guidesEnabled,e.target.checked?'1':'0');toast(e.target.checked?'Quick guides enabled':'Quick guides disabled')};$('showGuideNowButton').onclick=()=>showGuide(isAdmin()?'owner':'contractor');$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;if($('syncPill'))$('syncPill').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;setNav('snags');render()});$('createProjectButton').onclick=async()=>{if(!await requireCommercialAccess('createProject'))return;const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProjectSetupButton').onclick=async()=>{const p=project();p.locations=$('projectLocationsInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.assignees=$('projectAssigneesInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.updatedAt=now();saveState();if(firebase)await ensureProjectRemote();render();toast('Project setup saved')};$('createShareLinkButton').onclick=createShareLink;$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));if(firebase?.auth?.currentUser)window.AppMonitor?.identify?.({uid:firebase.auth.currentUser.uid,username:profile.name,provider:firebase.auth.currentUser.providerData?.[0]?.providerId||(firebase.auth.currentUser.isAnonymous?'anonymous':'firebase'),isAnonymous:firebase.auth.currentUser.isAnonymous});render();toast('Identity saved')};if($('protectEmailButton'))$('protectEmailButton').onclick=protectAccessWithEmail;if($('signInProtectedButton'))$('signInProtectedButton').onclick=signInProtectedAccess;if($('resetProtectedPasswordButton'))$('resetProtectedPasswordButton').onclick=sendProtectedPasswordReset;$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});if($('buildBadge'))$('buildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};if($('mobileBuildBadge'))$('mobileBuildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
 
 async function deleteOwnSeen(projectId,memberUid){
   const {fsMod,db}=firebase;try{const seen=await fsMod.getDocs(fsMod.collection(db,'snag_projects',projectId,'members',memberUid,'seen'));for(const d of seen.docs)await fsMod.deleteDoc(d.ref)}catch{}
