@@ -104,7 +104,17 @@ jobs:
         run: |
           BODY="$(curl --fail --silent --show-error -H 'Origin: https://nirav2000.github.io' 'https://apps-monitor-api.nirav2000-github.workers.dev/notifications/public-config?app=openday')"
           echo "$BODY"
-          node -e 'const x=JSON.parse(process.argv[1]); if(x.consumerRegistration!==true) process.exit(1)' "$BODY"
+          node -e '
+          const x=JSON.parse(process.argv[1]);
+          if(x.consumerRegistration!==true){
+            console.error("::error::OpenDay is not enabled in the shared consumer notification registry");
+            process.exit(1);
+          }
+          if(x.webPush?.configured!==true){
+            console.error("::error::Shared browser push is not configured. OpenDay is registered as a consumer, but the live Worker is missing one or more required FCM settings. Check FCM_PROJECT_ID, FCM_CLIENT_EMAIL, FCM_PRIVATE_KEY, FCM_WEB_API_KEY, FCM_WEB_APP_ID, FCM_MESSAGING_SENDER_ID and FCM_VAPID_KEY in the shared notification credential host.");
+            process.exit(1);
+          }
+          ' "$BODY"
           CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' -X POST -H 'Origin: https://nirav2000.github.io' -H 'Content-Type: application/json' --data '{"app":"openday","notification":{"title":"probe"}}' 'https://apps-monitor-api.nirav2000-github.workers.dev/notifications/consumer/deliver')"
           if [ "$CODE" != "401" ]; then
             echo "::error::Expected protected consumer delivery route to require bridge authentication (401), got $CODE"
