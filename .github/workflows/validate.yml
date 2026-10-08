@@ -13,6 +13,8 @@ on:
       - "cloudflare-worker.js"
       - "firebase-messaging-sw.js"
       - "release.js"
+      - "snag-export.js"
+      - "snag-export-ui.js"
       - "welcome.html"
       - "privacy.html"
       - "terms.html"
@@ -36,6 +38,8 @@ jobs:
           node --check notes.js
           node --check cloudflare-worker.js
           node --check release.js
+          node --check snag-export.js
+          node --check snag-export-ui.js
           node release-check.mjs
           node <<'NODE'
           const fs=require('fs');
