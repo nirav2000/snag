@@ -1,6 +1,6 @@
 {
-  "build": "2026.09.28.1053",
-  "publishedAt": "2026-09-28T10:53:00+01:00",
+  "build": "2026.10.08.1306",
+  "publishedAt": "2026-10-08T13:06:00+01:00",
   "channel": "release",
   "stableRef": "stable",
   "stableBuild": "2026.09.28.1053",
@@ -28,6 +28,8 @@
     "welcome-simplified-v1",
     "process-cards-complete-v1",
     "pricing-page-v1",
-    "process-rich-artwork-v2"
+    "process-rich-artwork-v2",
+    "snag-excel-export-v1",
+    "contractor-scoped-report-v1"
   ]
 }
