@@ -947,6 +947,8 @@ async function initFirebase(cfg){
     diagStep('Live listener','running','Starting realtime updates');
     try{await withTimeout(subscribeFirebase(),9000,'Live listener');diagStep('Live listener','ok','Listening')}catch(e){diagStep('Live listener','error',firebaseErrorMessage(e));console.warn(e)}
     clearTimeout(watchdog);if(run!==firebaseRun)return;
+    const linkedSnag=launchUrl.searchParams.get('snag');
+    if(linkedSnag){try{const doc=await fsMod.getDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'snags',linkedSnag));if(doc.exists()){const found={id:doc.id,...doc.data()};const ups=await fsMod.getDocs(fsMod.collection(db,'snag_projects',selectedProjectId,'snags',linkedSnag,'updates'));found.updates=ups.docs.map(x=>({id:x.id,...x.data()}));const i=state.snags.findIndex(x=>x.id===linkedSnag);if(i>=0)state.snags[i]=found;else state.snags.push(found);render();openDetail(linkedSnag)}}catch(e){console.warn('Linked snag is not accessible',e);toast('This snag is not available to your account')}}
     if(!launchInviteId)setTimeout(()=>maybeShowFirstGuide('owner'),700);render();setTimeout(()=>maybePresentNotificationChoice(),900);setTimeout(()=>backfillMediaPreviews(4),3200);
   }catch(e){
     clearTimeout(watchdog);if(run!==firebaseRun)return;
