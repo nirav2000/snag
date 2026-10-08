@@ -87,7 +87,7 @@ export function bulkSnagChange(snag,action,{recipient=null,value='',timestamp=ne
   const changed=Object.entries(patch).some(([key,val])=>
     key!=='updatedAt'&&(
       Array.isArray(val)?JSON.stringify([...val].sort())!==JSON.stringify([...(snag[key]||[])].sort()):
-      val!==snag[key]
+      (val??null)!==(snag[key]??null)
     )
   );
   return {patch:changed?patch:null,description};
