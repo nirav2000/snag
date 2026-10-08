@@ -204,3 +204,22 @@ body{overflow-x:hidden}
 .fab-plus{bottom:calc(88px + var(--snag-visual-bottom,0px) + env(safe-area-inset-bottom))!important}
 .handover-home,.snags-view,.rooms-view{min-height:0}
 @media(max-width:480px){.fab-plus{bottom:calc(92px + var(--snag-visual-bottom,0px) + env(safe-area-inset-bottom))!important}}
+
+/* Snag bulk actions — compact on mobile, readable and keyboard accessible */
+.bulk-controls{margin:14px 0 16px;padding:14px 16px;border:1px solid var(--line,#d9e1e8);border-radius:16px;background:var(--surface,#fff)}
+.bulk-controls[hidden],.bulk-actions[hidden],.bulk-input-label [hidden]{display:none!important}
+.bulk-select-line{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.bulk-select-all{display:inline-flex;align-items:center;gap:10px;font-weight:750;font-size:14px;cursor:pointer}
+.bulk-select-all input,.bulk-row-select input{width:19px;height:19px;accent-color:#175b88;cursor:pointer}
+.bulk-actions{display:flex;flex-wrap:wrap;align-items:end;gap:12px;padding-top:14px;margin-top:12px;border-top:1px solid var(--line,#d9e1e8)}
+.bulk-actions label{display:grid;gap:5px;font-size:12px;font-weight:700;min-width:165px;flex:1}
+.bulk-actions select,.bulk-actions input{min-height:42px;max-width:100%;border-radius:9px;border:1px solid var(--line,#d9e1e8);background:var(--surface,#fff);color:inherit;padding:9px}
+.bulk-actions .primary-button{min-height:42px}
+.bulk-snag-row{display:grid;grid-template-columns:40px minmax(0,1fr);align-items:stretch;gap:5px}
+.bulk-snag-row>.snag-card{width:100%;min-width:0}
+.bulk-row-select{display:flex;justify-content:center;align-items:center;cursor:pointer;border:1px solid var(--line,#d9e1e8);border-radius:11px;background:var(--surface,#fff)}
+.bulk-row-select:has(input:checked){border-color:#2c719f;background:#e8f4fb}
+.bulk-row-select:has(input:disabled){display:none}
+.bulk-snag-row:has(input:disabled){grid-template-columns:minmax(0,1fr)}
+.bulk-controls .microcopy{margin:8px 0 0}
+@media(max-width:650px){.bulk-controls{padding:12px}.bulk-actions{display:grid;grid-template-columns:minmax(0,1fr)}.bulk-actions label{min-width:0}.bulk-snag-row{grid-template-columns:32px minmax(0,1fr)}}
