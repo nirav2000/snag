@@ -1,4 +1,4 @@
-const APP_BUILD='2026.09.28.1053';
+const APP_BUILD='2026.10.08.1306';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1',userId:'snag-recorder-user-id-v1',migration:'snag-recorder-migration-v2',notificationPrompt:'snag-notification-choice-v1'};
 const now=()=>new Date().toISOString();
@@ -1092,10 +1092,54 @@ async function purgeCurrentUserData(){
   try{await fsMod.deleteDoc(fsMod.doc(db,'snag_accounts',stableAccountId()))}catch{}
   try{await fsMod.deleteDoc(fsMod.doc(db,'snag_users',auth.currentUser.uid))}catch{}
 }
+async function snagExportSelection({scope='all',recipientUid=''}={}){
+  const pid=selectedProjectId,p=project();if(!p)throw new Error('No project selected');
+  let rows;
+  if(firebase?.auth?.currentUser){
+    const {fsMod,db,auth}=firebase,restricted=currentMember?.role==='contractor'&&Number(p.accessModelVersion||0)>=2;
+    const col=fsMod.collection(db,'snag_projects',pid,'snags');
+    const q=restricted?fsMod.query(col,fsMod.where('participantUids','array-contains',auth.currentUser.uid)):col;
+    const snap=await fsMod.getDocs(q);
+    rows=await Promise.all(snap.docs.map(async d=>{
+      const data={id:d.id,...d.data()};
+      const updates=await fsMod.getDocs(fsMod.collection(db,'snag_projects',pid,'snags',d.id,'updates'));
+      data.updates=updates.docs.map(u=>({id:u.id,...u.data()}));return data;
+    }));
+  }else{
+    if(recipientUid)throw new Error('Contractor exports require a cloud connection');
+    rows=visibleProjectSnags();
+  }
+  let inviteId='';
+  if(recipientUid){
+    if(!isAdmin()||!firebase?.auth?.currentUser)throw new Error('Only an administrator can export for a contractor');
+    const {fsMod,db}=firebase,memberSnap=await fsMod.getDoc(fsMod.doc(db,'snag_projects',pid,'members',recipientUid));
+    if(!memberSnap.exists()||memberSnap.data().role!=='contractor')throw new Error('Contractor membership not found');
+    const member=memberSnap.data();inviteId=member.inviteId;
+    const inviteSnap=await fsMod.getDoc(fsMod.doc(db,'snag_projects',pid,'invites',inviteId));
+    if(!inviteSnap.exists()||inviteSnap.data().active!==true)throw new Error('Contractor invitation was revoked');
+    rows=rows.filter(s=>(s.participantUids||[]).includes(recipientUid));
+  }
+  if(scope==='open')rows=rows.filter(s=>s.status!=='resolved'&&!s.archived);
+  else if(scope==='filtered'){
+    const ids=new Set(getFiltered().map(s=>s.id));rows=rows.filter(s=>ids.has(s.id));
+  }
+  return{project:{id:pid,name:p.name,address:p.address},snags:rows,inviteId};
+}
+async function snagExportMembers(){
+  if(!isAdmin()||!firebase?.auth?.currentUser)return [];
+  const {fsMod,db}=firebase,snap=await fsMod.getDocs(fsMod.collection(db,'snag_projects',selectedProjectId,'members'));
+  return snap.docs.map(d=>({uid:d.id,...d.data()}));
+}
+async function snagExportMedia(m){
+  if(m?.storage==='r2'&&m.key)return privateMediaBlob(mediaVariant(m,'preview'));
+  if(m?.url&&(/^(data:image\/|blob:)/.test(m.url)))return(await fetch(m.url)).blob();
+  throw new Error('Media is not available as an authenticated image');
+}
 window.SnagReleaseBridge={
  build:APP_BUILD,
  context:()=>({projectId:selectedProjectId,project:{...project()},projectCount:state.projects.length,snagCount:projectSnags().length,member:currentMember?{...currentMember}:null,isOwner:isProjectOwner(),isAdmin:isAdmin(),cloud:cloudStatus,user:firebase?.auth?.currentUser||null}),
  token:async()=>firebase?.auth?.currentUser?.getIdToken(),
+ exportSelection:snagExportSelection,exportMembers:snagExportMembers,exportMedia:snagExportMedia,
  exportCurrentProject:()=>({exportedAt:now(),appBuild:APP_BUILD,project:{...project()},snags:state.snags.filter(x=>x.projectId===selectedProjectId)}),
  deleteCurrentProject:async()=>{const id=selectedProjectId;await deleteProjectCloud(id);state.snags=state.snags.filter(x=>x.projectId!==id);state.projects=state.projects.filter(x=>x.id!==id);if(!state.projects.length)state.projects=[{id:uid(),name:'My home',address:'',type:'Home',createdAt:now()}];selectedProjectId=state.projects[0].id;state.selectedProjectId=selectedProjectId;saveState();render();return true},
  deleteAccount:async password=>{const {authMod,auth}=firebase;if(!auth.currentUser)throw new Error('No signed-in account');if(!auth.currentUser.isAnonymous){const c=authMod.EmailAuthProvider.credential(auth.currentUser.email,password);await authMod.reauthenticateWithCredential(auth.currentUser,c)}await purgeCurrentUserData();await authMod.deleteUser(auth.currentUser);localStorage.removeItem(LS.state);localStorage.removeItem(LS.profile);localStorage.removeItem(LS.access);location.href='./welcome.html?deleted=1'},
