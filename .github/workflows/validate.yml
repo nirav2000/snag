@@ -15,6 +15,8 @@ on:
       - "release.js"
       - "snag-export.js"
       - "snag-export-ui.js"
+      - "snag-bulk.mjs"
+      - "snag-bulk.test.mjs"
       - "welcome.html"
       - "privacy.html"
       - "terms.html"
@@ -40,6 +42,8 @@ jobs:
           node --check release.js
           node --check snag-export.js
           node --check snag-export-ui.js
+          node --check snag-bulk.mjs
+          node --test snag-bulk.test.mjs
           node release-check.mjs
           node <<'NODE'
           const fs=require('fs');
