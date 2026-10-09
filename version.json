@@ -1,6 +1,6 @@
 {
-  "build": "2026.10.09.2145",
-  "publishedAt": "2026-10-09T21:45:00+01:00",
+  "build": "2026.10.09.2215",
+  "publishedAt": "2026-10-09T22:15:00+01:00",
   "channel": "release",
   "stableRef": "stable",
   "stableBuild": "2026.09.28.1053",
@@ -55,6 +55,10 @@
     "hero-photo-camera-project-details-v1",
     "duplicate-update-guard-v1",
     "account-upgrade-cta-v2",
-    "responsive-dialog-audit-v3"
+    "responsive-dialog-audit-v3",
+    "shared-layout-system-v1",
+    "notifications-preferences-checkbox-alignment-v1",
+    "export-report-field-grid-v1",
+    "settings-tab-scroll-reset-v1"
   ]
 }
