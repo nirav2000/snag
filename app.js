@@ -846,7 +846,7 @@ async function createShareLink(){
 async function renderAccessLinks(){
   const host=$('accessLinkList');if(!host||!firebase?.auth?.currentUser)return;
   try{
-    const {fsMod,db,q}=firebase,query=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'invites'));
+    const {fsMod,db}=firebase,query=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'invites'));
     const snap=await fsMod.getDocs(query),rows=[];snap.forEach(d=>rows.push({id:d.id,...d.data()}));
     rows.sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
     host.innerHTML=rows.length?rows.map(x=>'<div class="access-link-row"><div class="access-link-info"><strong>'+escapeHtml(x.label||'Access link')+'</strong><span>'+escapeHtml(x.role||'contractor')+(x.admin?' · Admin':'')+' · '+(x.active?'Active':'Revoked')+'</span></div><div class="access-link-buttons">'+(x.active?'<button type="button" data-share-invite="'+escapeHtml(x.id)+'" class="share-again-button">Share</button><button type="button" data-revoke-invite="'+escapeHtml(x.id)+'" class="share-revoke-button">Revoke</button>':'')+'</div></div>').join(''):'<p class="share-help">No invitations yet. Create a unique link above.</p>';
