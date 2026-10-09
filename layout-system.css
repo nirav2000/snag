@@ -1,0 +1,58 @@
+/* Shared layout primitives. Avoid appending per-screen overrides without regression checks. */
+.settings-organized .settings-body{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.settings-organized .settings-panel[hidden]{display:none!important}
+.settings-organized .settings-panel-intro{padding:0;margin:0 0 18px}
+.settings-organized .settings-panel-intro h3{margin:0 0 8px}
+.settings-organized .settings-intro{margin:0 0 20px}
+.settings-organized .settings-panel-stack{display:grid;grid-template-columns:minmax(0,1fr);gap:20px}
+.settings-organized .settings-panel-stack>section{width:100%;min-width:0;box-sizing:border-box}
+.settings-organized .settings-card h3{margin:0 0 12px}
+.settings-organized .settings-card p{line-height:1.5}
+.settings-organized .settings-card .button-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:20px}
+.settings-organized .settings-card .button-row .microcopy{flex:1 1 240px;min-width:0}
+.settings-organized .settings-card input:not([type="checkbox"]):not([type="radio"]),.settings-organized .settings-card select,.settings-organized .settings-card textarea{box-sizing:border-box;max-width:100%;min-width:0}
+.settings-organized .settings-card .form-grid.two{gap:20px}
+.settings-organized .settings-card .form-grid.two>label{display:grid;gap:8px;align-content:start;min-width:0}
+.settings-organized .settings-card .form-grid.two>label>input,.settings-organized .settings-card .form-grid.two>label>select{display:block;width:100%}
+.settings-organized #protectAccountFields .button-row{justify-content:flex-start}
+.settings-organized #protectAccountFields .text-button,.settings-organized #forgotPasswordButton{display:inline-flex!important;flex:0 0 auto!important;width:auto!important;min-height:44px!important;align-items:center;justify-content:center;padding:10px 14px!important;border:1px solid #666a72!important;border-radius:10px!important;background:transparent!important;color:#e9ebf0!important;text-decoration:none!important}
+.settings-organized #protectAccountFields .text-button:hover,.settings-organized #forgotPasswordButton:hover{background:#393c42!important}
+.settings-organized .settings-card .button-row button{flex:0 0 auto;white-space:normal}
+.settings-organized .settings-card .notice{line-height:1.5}
+.settings-organized .settings-card label.switch-row{display:flex!important;align-items:center!important;justify-content:flex-start;gap:12px;min-height:42px}
+.settings-organized input[type="checkbox"],.settings-organized input[type="radio"]{width:19px!important;height:19px!important;min-width:19px!important;min-height:19px!important;max-width:19px!important;max-height:19px!important;flex:0 0 19px!important;margin:0!important;padding:0!important;appearance:auto;accent-color:#ff634c;vertical-align:middle}
+.settings-organized .apps-notification-preferences{display:grid;gap:0;min-width:0}
+.settings-organized .apps-notification-preferences h2{margin:0 0 8px;font-size:23px;line-height:1.25}
+.settings-organized .apps-notification-preferences h3{font-size:17px;line-height:1.3;margin:22px 0 6px}
+.settings-organized .apps-notification-help{color:#b6b9c2;font-size:13px;line-height:1.5;margin:0 0 12px}
+.settings-organized .apps-notification-preferences [data-channels],.settings-organized .apps-notification-preferences [data-events]{display:grid;gap:0}
+.settings-organized .apps-notification-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:18px;min-height:58px;padding:12px 0;border-bottom:1px solid #46484e}
+.settings-organized .apps-notification-row:last-child{border-bottom:0}
+.settings-organized .apps-notification-row-text{min-width:0;display:grid;gap:4px}
+.settings-organized .apps-notification-row-text strong{display:block;font-size:15px;line-height:1.4;font-weight:650;color:#f1f2f5}
+.settings-organized .apps-notification-row-text small{display:block;color:#adb1bc;font-size:12px;line-height:1.45}
+.settings-organized .apps-notification-row-controls{display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:42px}
+.settings-organized .apps-notification-check{display:flex!important;align-items:center!important;justify-content:center!important;gap:0!important;min-width:42px!important;min-height:42px!important;margin:0!important;padding:0!important;cursor:pointer}
+.settings-organized .apps-notification-check input[type="checkbox"]{display:block!important;position:static!important}
+.settings-organized .apps-notification-row [data-kind]:disabled{cursor:not-allowed}
+.settings-organized .apps-notification-row [data-kind]:focus-visible{outline:3px solid #ff9b8a;outline-offset:3px}
+.settings-organized .apps-notification-preferences [data-status]{margin-top:12px;font-size:13px}
+.settings-organized .snag-export-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin:20px 0 14px}
+.settings-organized .snag-export-fields>label{display:grid!important;grid-template-columns:minmax(0,1fr)!important;align-content:start;gap:8px!important;min-width:0;font-size:13px;font-weight:650;color:#e5e6ea}
+.settings-organized .snag-export-fields select{width:100%!important;max-width:100%;min-width:0;height:46px;padding:10px 12px;border:1px solid #62656c;border-radius:10px;background:#1d1f22;color:#f4f4f5}
+.settings-organized #snagExportButton{margin-top:12px}
+.settings-organized #settingsExportHost .settings-card>.microcopy{margin-top:10px}
+.settings-organized .settings-panel-stack .share-invite-inline{box-sizing:border-box;min-width:0}
+.settings-organized .settings-panel-stack .share-invite-body{min-width:0}
+.settings-organized .settings-tabs{display:flex!important;gap:7px;align-items:center;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}
+.settings-organized .settings-tabs>button{flex:0 0 auto;white-space:nowrap}
+.settings-organized .settings-tabs>button[aria-selected="true"]{font-weight:750}
+.settings-organized .settings-body .settings-panel{max-width:100%;min-width:0}
+@media(max-width:700px){.settings-organized .snag-export-fields{grid-template-columns:minmax(0,1fr);gap:16px}.settings-organized .settings-card .button-row button{width:100%;flex:1 1 100%}.settings-organized .settings-body{scrollbar-gutter:auto}}
+/* Home: one visual language for cards and activities. */
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-row{position:relative}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-type-dot{z-index:2}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-thumb{overflow:hidden;isolation:isolate}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-thumb img{position:absolute;inset:0;object-fit:cover;object-position:center}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-copy{overflow:hidden}
+@media(min-width:900px){html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-row{min-height:104px;max-height:104px}}
