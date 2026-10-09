@@ -1,4 +1,4 @@
-const APP_BUILD='2026.10.08.1345';
+const APP_BUILD='2026.10.09.1504';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1',userId:'snag-recorder-user-id-v1',migration:'snag-recorder-migration-v2',notificationPrompt:'snag-notification-choice-v1'};
 const now=()=>new Date().toISOString();
@@ -342,12 +342,15 @@ function renderHomeActiveSnags(){
   host.querySelectorAll('[data-home-snag]').forEach(b=>b.onclick=()=>openDetail(b.dataset.homeSnag));
 }
 const bulkSelection=new Set();
+let bulkMode=false;
+let bulkSourceContractor='';
 let bulkBusy=false;
 function bulkSelectionChanged(){const visible=new Set(getFiltered().map(s=>s.id));for(const id of [...bulkSelection])if(!state.snags.some(s=>s.id===id&&s.projectId===selectedProjectId))bulkSelection.delete(id);renderList()}
 function renderBulkControls(){
   const panel=$('bulkControls');if(!panel)return;
-  const list=getFiltered(),ids=list.map(s=>s.id),count=ids.filter(id=>bulkSelection.has(id)).length,admin=isAdmin();
-  panel.hidden=!admin;
+  const toggle=$('bulkModeToggle');if(toggle){toggle.hidden=!isAdmin();toggle.textContent=bulkMode?'Done editing':'Select / bulk edit';toggle.setAttribute('aria-pressed',String(bulkMode))}
+  const list=getFiltered().filter(s=>!bulkSourceContractor||s.assigneeId===bulkSourceContractor||s.assignee===bulkSourceContractor),ids=list.map(s=>s.id),count=ids.filter(id=>bulkSelection.has(id)).length,admin=isAdmin();
+  panel.hidden=!admin||!bulkMode;
   if(!admin){bulkSelection.clear();return}
   $('bulkCount').textContent=bulkSelection.size?bulkSelection.size+' selected':'Select snags for bulk changes';
   $('bulkAll').checked=!!ids.length&&count===ids.length;
@@ -371,10 +374,11 @@ async function bulkRefreshContractors(){
     select.add(option);
   }
   if([...select.options].some(o=>o.value===previous))select.value=previous;
+  const source=$('bulkFromContractor');if(source){const old=source.value;source.replaceChildren(new Option('All contractors',''),new Option('Unassigned','__unassigned__'),...[...select.options].filter(o=>o.value).map(o=>new Option(o.textContent,o.value)));source.value=[...source.options].some(o=>o.value===old)?old:'';}
 }
 function bulkActionFields(){
   const action=$('bulkAction').value,contractor=['assign','grant','revoke'].includes(action),choice=['status','priority','category'].includes(action),location=action==='location';
-  $('bulkContractor').hidden=!contractor;$('bulkValue').hidden=!choice;$('bulkLocation').hidden=!location;
+  $('bulkFromWrap').hidden=action!=='assign';$('bulkContractor').hidden=!contractor;$('bulkValue').hidden=!choice;$('bulkLocation').hidden=!location;
   if(choice){
     const choices=action==='status'?[['open','Open'],['in-progress','In progress'],['review','Needs review'],['resolved','Resolved']]:action==='priority'?['Urgent','High','Normal','Low'].map(x=>[x,x]):['Home snag','App / software','Business process','Other'].map(x=>[x,x]);
     $('bulkValue').replaceChildren(...choices.map(([value,label])=>new Option(label,value)));
@@ -436,6 +440,9 @@ async function bulkApplyChanges(){
 }
 function setupBulk(){
   if(!$('bulkControls'))return;
+  $('bulkModeToggle').onclick=()=>{bulkMode=!bulkMode;bulkSelection.clear();bulkSourceContractor='';$('bulkFromContractor').value='';renderList();if(bulkMode)bulkRefreshContractors().catch(console.warn)};
+  $('bulkFromContractor').onchange=e=>{bulkSourceContractor=e.target.value;bulkSelection.clear();renderList()};
+  $('bulkAddContractor').onclick=()=>{shareProject().catch(e=>toast(e.message));$('bulkProgress').textContent='Create a contractor invitation. Once they join, return here to assign their snags.'};
   $('bulkSelectAll').onclick=()=>{getFiltered().forEach(s=>bulkSelection.add(s.id));renderList()};
   $('bulkClear').onclick=()=>{bulkSelection.clear();renderList()};
   $('bulkAll').onchange=e=>{getFiltered().forEach(s=>e.target.checked?bulkSelection.add(s.id):bulkSelection.delete(s.id));renderList()};
@@ -445,7 +452,7 @@ function setupBulk(){
   bulkActionFields();
 }
 
-function renderList(){const list=getFiltered();renderBulkControls();const titles={active:'Active snags','in-progress':'In progress',review:'Needs review',resolved:'Resolved archive'};$('listTitle').textContent=titles[view.status]||'Snags';$('snagList').innerHTML=list.map(s=>`<div class="bulk-snag-row"><label class="bulk-row-select" title="Select ${escapeHtml(s.ref)}"><input type="checkbox" data-bulk-snag="${escapeHtml(s.id)}" aria-label="Select snag ${escapeHtml(s.ref)}" ${bulkSelection.has(s.id)?'checked':''} ${!isAdmin()?'disabled':''}></label><button class="snag-card" data-id="${s.id}" type="button">${thumbHtml(s)}<div class="snag-card-body"><div class="snag-meta"><span class="status-badge status-${s.status}">${statusLabel[s.status]}</span><span class="priority-badge priority-${s.priority}">${s.priority}</span><span>${escapeHtml(s.ref)}</span></div><h3>${escapeHtml(s.title)}</h3><div class="snag-foot"><span>${escapeHtml(s.location||'No location')}</span><span>·</span><span>${escapeHtml(s.assignee||'Unassigned')}</span><span>·</span><span>Updated ${fmt(s.updatedAt)}</span></div></div><div class="snag-actions">${isUnread(s)?`<span class="card-unread-dot" title="New activity"></span>`:""}<span class="activity-count">${(s.updates||[]).length} updates</span></div></button></div>`).join('');$('emptyState').classList.toggle('hidden',list.length>0);$('snagList').querySelectorAll('.snag-card').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.id)));$('snagList').querySelectorAll('[data-bulk-snag]').forEach(el=>el.onchange=()=>{if(el.checked)bulkSelection.add(el.dataset.bulkSnag);else bulkSelection.delete(el.dataset.bulkSnag);renderList()});}
+function renderList(){const list=getFiltered().filter(s=>!bulkMode||!bulkSourceContractor||(bulkSourceContractor==='__unassigned__'?!s.assigneeId&&!s.assignee:(s.assigneeId===bulkSourceContractor||s.assignee===bulkSourceContractor)));renderBulkControls();const titles={active:'Active snags','in-progress':'In progress',review:'Needs review',resolved:'Resolved archive'};$('listTitle').textContent=titles[view.status]||'Snags';$('snagList').innerHTML=list.map(s=>`<div class="bulk-snag-row ${bulkMode&&isAdmin()?'bulk-active':''}"><label class="bulk-row-select" title="Select ${escapeHtml(s.ref)}"><input type="checkbox" data-bulk-snag="${escapeHtml(s.id)}" aria-label="Select snag ${escapeHtml(s.ref)}" ${bulkSelection.has(s.id)?'checked':''} ${!bulkMode||!isAdmin()?'disabled':''}></label><button class="snag-card" data-id="${s.id}" type="button">${thumbHtml(s)}<div class="snag-card-body"><div class="snag-meta"><span class="status-badge status-${s.status}">${statusLabel[s.status]}</span><span class="priority-badge priority-${s.priority}">${s.priority}</span><span>${escapeHtml(s.ref)}</span></div><h3>${escapeHtml(s.title)}</h3><div class="snag-foot"><span>${escapeHtml(s.location||'No location')}</span><span>·</span><span>${escapeHtml(s.assignee||'Unassigned')}</span><span>·</span><span>Updated ${fmt(s.updatedAt)}</span></div></div><div class="snag-actions">${isUnread(s)?`<span class="card-unread-dot" title="New activity"></span>`:""}<span class="activity-count">${(s.updates||[]).length} updates</span></div></button></div>`).join('');$('emptyState').classList.toggle('hidden',list.length>0);$('snagList').querySelectorAll('.snag-card').forEach(el=>el.addEventListener('click',()=>openDetail(el.dataset.id)));$('snagList').querySelectorAll('[data-bulk-snag]').forEach(el=>el.onchange=()=>{if(el.checked)bulkSelection.add(el.dataset.bulkSnag);else bulkSelection.delete(el.dataset.bulkSnag);renderList()});}
 function renderProjects(){$('projectList').innerHTML=state.projects.map(p=>`<div class="project-option ${p.id===selectedProjectId?'current':''}"><button type="button" data-project="${p.id}"><strong>${escapeHtml(p.name)}</strong><div class="subtle">${escapeHtml(p.address||p.type)}</div></button><span>${projectSnagCount(p.id)}</span></div>`).join('');$('projectList').querySelectorAll('[data-project]').forEach(b=>b.onclick=()=>selectProject(b.dataset.project));}
 function projectSnagCount(pid){return state.snags.filter(s=>s.projectId===pid&&s.status!=='resolved').length;}
 function selectProject(id){selectedProjectId=id;state.selectedProjectId=id;saveState();const u=new URL(location.href);u.searchParams.set('project',id);history.replaceState({},'',u);$('projectDialog').close();if(firebase) subscribeFirebase();render();}
