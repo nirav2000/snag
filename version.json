@@ -1,6 +1,6 @@
 {
-  "build": "2026.10.09.1504",
-  "publishedAt": "2026-10-09T15:04:00+01:00",
+  "build": "2026.10.09.1620",
+  "publishedAt": "2026-10-09T16:20:00+01:00",
   "channel": "release",
   "stableRef": "stable",
   "stableBuild": "2026.09.28.1053",
@@ -35,6 +35,9 @@
     "bulk-snag-changes-v1",
     "opt-in-bulk-selection",
     "bulk-contractor-source-filter",
-    "bulk-new-contractor-invitation"
+    "bulk-new-contractor-invitation",
+    "native-invitation-share-v1",
+    "organised-settings-v1",
+    "invitation-reuse-share-v1"
   ]
 }
