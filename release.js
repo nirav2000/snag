@@ -137,10 +137,10 @@ function modal(){
 }
 function privacyBanner(){return null}
 function addSettingsCard(){
-  const body=$('#settingsDialog .modal-body');if(!body||$('#releaseSettingsCard'))return;
+  const accountStack=$('#settings-panel-account .settings-panel-stack');if(!accountStack||$('#releaseSettingsCard'))return;
   const c=ce('section','settings-card release-card');c.id='releaseSettingsCard';
   c.innerHTML='<div class="section-kicker">ACCOUNT · PRIVACY · BILLING</div><h3>Release account</h3><p id="releaseSettingsState" class="subtle">Loading…</p><div class="release-actions"><button id="openReleaseAccount" class="primary-button" type="button">Account & billing</button><a class="secondary-button" href="./welcome.html" target="_blank">About Snag</a></div><div id="releaseUserTelemetry" class="hidden" style="margin-top:12px"><label class="switch-row"><input id="releaseTelemetryEnabled" type="checkbox"><span>Share usage diagnostics to help improve Snag</span></label></div><div id="releaseDeveloperControls" class="release-card hidden" style="margin-top:12px"><div class="section-kicker">DEVELOPER CONTROLS</div><h3>Telemetry controls</h3><p class="subtle">Tracking is on by default. This controls whether ordinary users are shown an opt-out switch.</p><label class="switch-row"><input id="releaseShowOptOut" type="checkbox"><span>Show users the telemetry opt-out setting</span></label><button id="releaseSaveDeveloper" class="secondary-button" type="button">Save developer setting</button></div>';
-  body.prepend(c);
+  accountStack.appendChild(c);
   $('#openReleaseAccount').onclick=()=>{modal().classList.remove('hidden');refresh()};
   const telemetry=$('#releaseTelemetryEnabled');if(telemetry)telemetry.onchange=()=>{AppsPrivacy.set({analytics:telemetry.checked,personalisedMonitoring:telemetry.checked});refresh()};
   const saveDeveloper=$('#releaseSaveDeveloper');if(saveDeveloper)saveDeveloper.onclick=async()=>{try{await saveDeveloperConfig();SnagReleaseBridge.toast('Developer telemetry setting saved')}catch(e){SnagReleaseBridge.toast(e.message)}};
