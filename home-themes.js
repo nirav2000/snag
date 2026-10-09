@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   const KEY = 'snag-home-design-v1';
+  const FALLBACK_KEY = 'snag-home-design-backup-v1';
   const designs = [
     {id:'classic',name:'Current design',kind:'original',detail:'Keep the original Snag home screen.'},
     {id:'full-bleed',name:'Full-Bleed Hero',kind:'photo',detail:'Immersive project photo with overlaid progress.'},
@@ -13,24 +14,38 @@
     {id:'modern-utility',name:'Modern Utility',kind:'utility',detail:'Bright, practical layout with compact sans-serif labels.'}
   ];
   const ids = new Set(designs.map(x=>x.id));
-  function stored() {
-    try {
-      const val = localStorage.getItem(KEY);
-      return ids.has(val) ? val : 'classic';
-    } catch (_) { return 'classic'; }
+  function readStorage(store,key) {
+    try {return store.getItem(key)} catch (_) {return null}
   }
-  function apply(id, persist) {
+  function stored() {
+    const candidates=[
+      readStorage(localStorage,KEY),
+      readStorage(localStorage,FALLBACK_KEY),
+      readStorage(sessionStorage,KEY),
+      document.documentElement.getAttribute('data-home-theme')
+    ];
+    return candidates.find(value=>ids.has(value))||'classic';
+  }
+  function persist(id) {
+    let saved=false;
+    for(const key of [KEY,FALLBACK_KEY]){
+      try {localStorage.setItem(key,id);saved=true} catch (_) {}
+    }
+    try {sessionStorage.setItem(KEY,id)} catch (_) {}
+    return saved;
+  }
+  function apply(id, shouldPersist) {
     if (!ids.has(id)) return;
+    const saved=shouldPersist?persist(id):true;
     document.documentElement.setAttribute('data-home-theme',id);
-    if (persist) { try {localStorage.setItem(KEY,id)} catch (_) {} }
     document.querySelectorAll('input[name="snag-home-design"]').forEach(input=>{
-      input.checked = input.value===id;
+      input.checked=input.value===id;
       const card=input.closest('.home-theme-option');
-      if(card) card.classList.toggle('is-selected',input.checked);
+      if(card)card.classList.toggle('is-selected',input.checked);
     });
     const label=document.getElementById('activeHomeDesign');
     const match=designs.find(x=>x.id===id);
-    if(label && match)label.textContent='Using: '+match.name;
+    if(label&&match)label.textContent=saved?'Using: '+match.name+' · Saved on this device':'Using: '+match.name+' · Could not save on this device';
   }
   function renderGallery() {
     const host=document.getElementById('homeThemeChoices');
@@ -45,6 +60,10 @@
       '<span class="home-theme-copy"><strong>'+x.name+'</strong><small>'+x.detail+'</small></span>'+
       '<span class="home-theme-check" aria-hidden="true">✓</span></label>'
     ).join('');
+    host.addEventListener('click',event=>{
+      const card=event.target.closest('.home-theme-option');
+      if(card&&card.dataset.design&&event.target.tagName!=='INPUT')apply(card.dataset.design,true);
+    });
     host.addEventListener('change',event=>{
       const input=event.target.closest('input[name="snag-home-design"]');
       if(input)apply(input.value,true);
