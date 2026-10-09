@@ -1,6 +1,6 @@
 {
-  "build": "2026.10.09.1735",
-  "publishedAt": "2026-10-09T17:35:00+01:00",
+  "build": "2026.10.09.1840",
+  "publishedAt": "2026-10-09T18:40:00+01:00",
   "channel": "release",
   "stableRef": "stable",
   "stableBuild": "2026.09.28.1053",
@@ -41,6 +41,8 @@
     "invitation-reuse-share-v1",
     "dark-settings-v1",
     "separate-invite-export-tabs-v1",
-    "icon-only-share-shortcuts-v1"
+    "icon-only-share-shortcuts-v1",
+    "inline-project-invitations-v1",
+    "account-only-billing-v1"
   ]
 }
