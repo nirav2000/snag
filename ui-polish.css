@@ -1,0 +1,41 @@
+
+/* Hero information hierarchy and responsive spacing audit */
+.handover-overview{position:relative;isolation:isolate}
+.handover-hero-top .project-edit-trigger{display:inline-flex;align-items:center;gap:9px;border:0;background:none;padding:6px 0;color:inherit;cursor:pointer;letter-spacing:.13em;font-weight:750}
+.project-edit-trigger span{font-size:14px;opacity:.75}
+.handover-hero-top #projectAddress{display:none}
+.hero-project-details{position:absolute;top:18px;left:20px;z-index:5;max-width:calc(100% - 110px);padding:8px 12px;border-radius:8px;background:#0d1928b5;color:#fff;font-size:13px;font-weight:650;backdrop-filter:blur(10px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hero-photo-controls{position:absolute;right:16px;bottom:16px;z-index:7;display:flex;align-items:center;gap:8px}
+.hero-camera-button,.hero-remove-photo{display:grid;place-items:center;width:44px;height:44px;border:1px solid #ffffff55;border-radius:50%;background:#101c28bd;color:#fff;cursor:pointer;backdrop-filter:blur(10px);box-shadow:0 3px 16px #0003}
+.hero-camera-button:focus-within,.hero-remove-photo:focus-visible{outline:3px solid #ff745e;outline-offset:2px}
+.hero-remove-photo{font-size:25px}
+.handover-summary{padding-top:36px}
+.snag-app-footer{display:flex;justify-content:center;align-items:center;min-height:52px;padding:18px 16px 110px;color:#737d89}
+.snag-app-footer .build-badge{font-size:12px;letter-spacing:.02em;opacity:.75;border:0;background:transparent;color:inherit;cursor:pointer}
+.project-edit-section{padding:18px;margin-bottom:18px;border-radius:15px;border:1px solid #4b5057;background:#303236;color:#f8f8f8}
+.project-edit-section h3{margin:0 0 16px}
+.project-edit-section .form-grid.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.project-edit-section label{display:grid;gap:9px;min-width:0}
+.project-edit-section input{box-sizing:border-box;min-width:0;width:100%;height:46px;padding:10px 13px}
+.project-edit-section button{margin-top:18px}
+#releaseSettingsCard{background:linear-gradient(135deg,#302c2c,#45322e 75%,#633b33)!important;border:1px solid #a96453!important;box-shadow:0 12px 34px #0002;padding:clamp(20px,3vw,30px)!important}
+#releaseSettingsCard .section-kicker{color:#ffab95}
+#releaseSettingsCard h3{font-size:clamp(22px,2.8vw,30px);line-height:1.13;color:#fff;margin:10px 0}
+#releaseSettingsCard .release-cta-copy{color:#f2dcd6;font-size:15px;line-height:1.55;max-width:620px;margin:0 0 12px}
+#releaseSettingsCard .release-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+#releaseSettingsCard .release-actions button,#releaseSettingsCard .release-actions a{min-height:44px;display:inline-flex;align-items:center;justify-content:center;padding:11px 18px;box-sizing:border-box}
+#releaseSettingsCard #openReleaseAccount{background:#ff624c;color:#fff}
+.release-overlay:not(.hidden){position:fixed;inset:0;z-index:2147483640;display:grid;place-items:center;padding:20px;overflow:auto}
+.release-overlay .release-panel{max-height:calc(100dvh - 40px);overflow-y:auto;overscroll-behavior:contain}
+.settings-organized .settings-panel-stack>section{min-width:0}
+.settings-organized .settings-panel-stack>section .form-grid{min-width:0}
+.settings-organized .settings-panel-stack button,.settings-organized .settings-panel-stack input,.settings-organized .settings-panel-stack select{max-width:100%}
+.settings-organized .settings-panel-stack .release-actions{row-gap:12px}
+.modal:not(.settings-organized) .modal-body{padding:clamp(16px,3vw,26px)}
+.modal:not(.settings-organized) .form-grid.two{gap:18px}
+.modal:not(.settings-organized) .form-grid.two label{min-width:0;display:grid;gap:8px}
+.modal:not(.settings-organized) input,.modal:not(.settings-organized) select,.modal:not(.settings-organized) textarea{max-width:100%;box-sizing:border-box}
+.modal .modal-footer{gap:12px;flex-wrap:wrap}
+.modal .form-stack{gap:16px}
+#sendUpdate[disabled],#createSnagSubmit[disabled]{opacity:.65;cursor:progress}
+@media(max-width:640px){.project-edit-section .form-grid.two,.modal:not(.settings-organized) .form-grid.two{grid-template-columns:1fr}.hero-project-details{top:10px;left:10px;max-width:calc(100% - 80px);font-size:12px}.hero-photo-controls{right:10px;bottom:10px}.handover-summary{padding-top:46px}.snag-app-footer{padding-bottom:110px}}
