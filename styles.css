@@ -334,3 +334,12 @@ body{overflow-x:hidden}
 .share-quick-actions button{padding:10px;min-height:60px}
 .share-quick-actions button svg{width:34px;height:34px}
 .share-quick-actions button:hover{background:#25272b}
+
+/* Embedded project access: same polished invitation design, without a second modal. */
+.settings-organized .share-invite-inline{width:100%;max-height:none;border:0;border-radius:17px;box-shadow:none;background:#222325;overflow:visible}
+.settings-organized .share-invite-inline .share-invite-body{max-height:none;overflow:visible;padding:0}
+.settings-organized .share-invite-inline .share-project-name{margin:0 0 12px;color:#c1c4cc}
+.settings-organized #settings-panel-invite>.settings-panel-stack{display:block}
+.settings-organized #settings-panel-invite .share-create-card,.settings-organized #settings-panel-invite .share-invitation-result{background:#2b2d30}
+.settings-organized #settings-panel-invite .share-existing{margin-top:20px}
+.settings-organized #settings-panel-account .settings-card{margin-bottom:12px}
