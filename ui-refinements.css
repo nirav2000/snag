@@ -1,0 +1,54 @@
+
+/* Snag modal spacing and responsive design system — v2026.10.09.2030 */
+.settings-organized{width:min(960px,calc(100vw - 32px))!important;max-width:960px;max-height:min(92dvh,960px);overflow:hidden}
+.settings-organized .modal-header{padding:24px clamp(20px,3.5vw,36px) 18px}
+.settings-organized .settings-tabs{padding:12px clamp(16px,3vw,32px)}
+.settings-organized .settings-body{padding:clamp(20px,3.5vw,36px)!important;max-height:calc(min(92dvh,960px) - 166px);overflow-y:auto}
+.settings-organized .settings-panel{min-width:0}
+.settings-organized .settings-panel[hidden]{display:none!important}
+.settings-organized .settings-panel-stack{gap:22px}
+.settings-organized .settings-card,.settings-organized .settings-panel-stack>section{padding:clamp(18px,2.7vw,28px);min-width:0}
+.settings-organized .settings-panel-stack .section-kicker{margin-bottom:14px}
+.settings-organized .form-grid.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 24px;align-items:start}
+.settings-organized .form-grid.two>label{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;align-content:start;min-width:0;font-size:13px;font-weight:650;line-height:1.5}
+.settings-organized .form-grid.two input,.settings-organized .form-grid.two select{width:100%;min-width:0;max-width:100%;height:46px;box-sizing:border-box;margin:0;padding:10px 13px;font-size:16px}
+.settings-organized #saveProfileButton{margin-top:18px;min-height:44px}
+.settings-organized .settings-panel-stack label:not(.switch-row){line-height:1.5}
+.settings-organized .settings-panel-stack input:not([type=checkbox]):not([type=radio]),.settings-organized .settings-panel-stack select,.settings-organized .settings-panel-stack textarea{box-sizing:border-box;max-width:100%}
+.settings-organized #releaseSettingsCard{margin:0}
+.settings-organized .share-invite-inline{width:100%;max-width:none;max-height:none;overflow:visible;border-radius:18px;box-shadow:none}
+.settings-organized .share-invite-body{padding:0}
+.settings-organized .share-invite-modal .share-create-card,.settings-organized .share-invite-modal .share-invitation-result{padding:clamp(16px,2.7vw,24px)}
+.settings-organized .share-invite-modal .share-quick-actions{gap:18px}
+.settings-organized .settings-panel .release-card{max-width:100%}
+.settings-organized .settings-tabs button{min-height:42px;padding:10px 15px}
+.settings-organized .settings-panel-intro h3{font-size:clamp(22px,2.5vw,29px);line-height:1.2}
+.settings-organized .settings-intro{margin-top:10px;margin-bottom:22px}
+@media(min-width:1100px){.settings-organized{width:min(1000px,calc(100vw - 80px))!important;max-width:1000px}}
+@media(max-width:640px){.settings-organized{width:calc(100vw - 16px)!important;max-width:none;max-height:calc(100dvh - 24px)}.settings-organized .modal-header{padding:18px 18px 12px}.settings-organized .settings-tabs{padding:8px 12px}.settings-organized .settings-body{padding:18px!important;max-height:calc(100dvh - 175px)}.settings-organized .form-grid.two{grid-template-columns:1fr;gap:16px}.settings-organized .settings-card,.settings-organized .settings-panel-stack>section{padding:17px}.settings-organized .settings-panel-stack{gap:15px}}
+/* Uniform cards: images never contribute intrinsic height to the grid. */
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-snag-row{height:clamp(138px,12vw,166px)!important;min-height:0!important;max-height:166px!important;align-items:stretch!important;grid-template-rows:minmax(0,1fr)!important;overflow:hidden!important}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-snag-row .snag-thumb{position:relative;display:block!important;min-height:0!important;min-width:0!important;height:100%!important;max-height:100%!important;overflow:hidden!important;align-self:stretch}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-snag-row .snag-thumb img,html[data-home-theme]:not([data-home-theme="classic"]) .handover-snag-row .snag-thumb video{position:absolute!important;inset:0!important;display:block;width:100%!important;height:100%!important;max-width:100%!important;max-height:100%!important;object-fit:cover!important;object-position:center!important}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-snag-row .home-snag-copy{align-self:center;min-height:0;max-height:100%;overflow:hidden;display:flex;flex-direction:column;justify-content:center;gap:6px}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-snag-row .handover-title{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-snag-row .handover-index{align-self:end}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-snag-row .chevron{align-self:center}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-snag-row .handover-meta-line{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+/* Activity rows follow the selected theme's image, rail, and card language. */
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity{gap:12px;align-items:stretch}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-row{display:grid;grid-template-columns:66px minmax(0,1fr);grid-template-rows:minmax(0,1fr);min-height:80px;max-height:94px;align-items:center;gap:12px;overflow:hidden;padding:0 14px 0 0!important;border:1px solid var(--home-line)!important;border-radius:13px!important;background:var(--home-surface)!important;box-shadow:0 5px 18px #0000000b;text-align:left}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-type-dot{position:absolute;left:0;top:0;bottom:0;width:4px;height:auto;margin:0;border-radius:0;background:var(--home-accent)!important}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-thumb{grid-column:1;grid-row:1;position:relative;width:66px!important;height:100%!important;min-height:80px;border-radius:0!important;overflow:hidden}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-copy{grid-column:2;grid-row:1;min-width:0;display:grid;gap:5px}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--home-ink)}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-copy small{color:var(--home-muted)}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .unread-count-dot{right:8px;top:8px;background:var(--home-accent)}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-row:focus-visible{outline:3px solid var(--home-accent);outline-offset:3px}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-snag-row .snag-thumb:not(:has(img)):not(:has(video)){display:grid!important;place-items:center;color:#526776}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-actions .handover-action{display:grid;place-items:center;border-radius:50%;width:43px;height:43px;min-width:43px;background:var(--home-surface);color:var(--home-ink);border:1px solid var(--home-line)}
+html[data-home-theme]:not([data-home-theme="classic"]) .sync-pill{display:inline-flex;align-items:center;gap:7px;color:var(--home-ink)}
+html[data-home-theme]:not([data-home-theme="classic"]) .sync-pill .sync-cloud-icon{flex:none}
+html[data-home-theme]:not([data-home-theme="classic"]) .handover-bottom-nav svg{display:block;margin:0 auto}
+@media(max-width:480px){html[data-home-theme]:not([data-home-theme="classic"]) .handover-snag-row{height:134px!important;max-height:134px!important}html[data-home-theme]:not([data-home-theme="classic"]) .handover-activity .activity-row{min-height:76px;max-height:90px}}
