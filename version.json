@@ -1,6 +1,6 @@
 {
-  "build": "2026.10.09.1840",
-  "publishedAt": "2026-10-09T18:40:00+01:00",
+  "build": "2026.10.09.1945",
+  "publishedAt": "2026-10-09T19:45:00+01:00",
   "channel": "release",
   "stableRef": "stable",
   "stableBuild": "2026.09.28.1053",
@@ -43,6 +43,9 @@
     "separate-invite-export-tabs-v1",
     "icon-only-share-shortcuts-v1",
     "inline-project-invitations-v1",
-    "account-only-billing-v1"
+    "account-only-billing-v1",
+    "switchable-home-design-gallery-v1",
+    "floorplan-rooms-icon-v1",
+    "home-card-image-status-rails-v1"
   ]
 }
