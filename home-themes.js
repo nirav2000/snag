@@ -32,6 +32,7 @@
       try {localStorage.setItem(key,id);saved=true} catch (_) {}
     }
     try {sessionStorage.setItem(KEY,id)} catch (_) {}
+    if(window.SnagSaveAppearancePreference)void window.SnagSaveAppearancePreference(id);
     return saved;
   }
   function apply(id, shouldPersist) {
@@ -73,6 +74,8 @@
   apply(stored(),false);
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',renderGallery,{once:true});
   else renderGallery();
+  window.SnagApplyRemoteAppearance=function(id){if(ids.has(id)){persistRemote(id);apply(id,false)}};
+  function persistRemote(id){try{localStorage.setItem(KEY,id);localStorage.setItem(FALLBACK_KEY,id)}catch(_){}}
   window.addEventListener('storage',event=>{
     if(event.key===KEY)apply(stored(),false);
   });
