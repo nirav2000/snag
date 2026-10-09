@@ -1,4 +1,4 @@
-const APP_BUILD='2026.10.09.2145';
+const APP_BUILD='2026.10.09.2215';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1',userId:'snag-recorder-user-id-v1',migration:'snag-recorder-migration-v2',notificationPrompt:'snag-notification-choice-v1'};
 const now=()=>new Date().toISOString();
@@ -807,6 +807,8 @@ function settingsTab(tab,{focus=false}={}){
   }
   ensureBillingInAccount();
   for(const panel of document.querySelectorAll('.settings-panel'))panel.hidden=panel.id!=='settings-panel-'+tab;
+  const body=$('settingsDialog')?.querySelector('.settings-body');
+  if(body)body.scrollTop=0;
   if(tab==='invite')void renderAccessLinks();
 }
 function inviteUrl(id){
