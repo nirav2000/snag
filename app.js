@@ -1,4 +1,4 @@
-const APP_BUILD='2026.10.09.2030';
+const APP_BUILD='2026.10.09.2145';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1',userId:'snag-recorder-user-id-v1',migration:'snag-recorder-migration-v2',notificationPrompt:'snag-notification-choice-v1'};
 const now=()=>new Date().toISOString();
@@ -306,6 +306,23 @@ function getFiltered(){
   return snags;
 }
 function render(){renderProject();renderStats();renderFilters();renderHomeActiveSnags();renderRecentActivity();renderList();renderRooms();renderProjects();renderSettings();renderQuickSuggestions();renderUnreadIndicators();renderCloudDiagnostics();queueMicrotask(()=>hydratePrivateMedia(document));}
+let appearanceWriteTimer=null;
+window.SnagSaveAppearancePreference=function(theme){
+  clearTimeout(appearanceWriteTimer);
+  appearanceWriteTimer=setTimeout(async()=>{
+    if(!firebase?.auth?.currentUser)return;
+    try{await firebase.fsMod.setDoc(firebase.fsMod.doc(firebase.db,'snag_users',firebase.auth.currentUser.uid),{preferences:{homeDesign:theme},preferencesUpdatedAt:now()},{merge:true})}
+    catch(e){console.warn('Appearance preference sync failed',e)}
+  },450);
+};
+async function loadAppearancePreference(){
+  if(!firebase?.auth?.currentUser)return;
+  try{
+    const snap=await withTimeout(firebase.fsMod.getDoc(firebase.fsMod.doc(firebase.db,'snag_users',firebase.auth.currentUser.uid)),7000,'Appearance preference');
+    const theme=snap.data()?.preferences?.homeDesign;
+    if(theme&&typeof window.SnagApplyRemoteAppearance==='function')window.SnagApplyRemoteAppearance(theme);
+  }catch(e){console.warn('Appearance preference unavailable',e)}
+}
 function renderProject(){const p=project();if(!p)return;const cover=$('projectCover');if(cover){cover.classList.toggle('hidden',!p.coverImage?.url);cover.innerHTML=p.coverImage?.url?`<img ${mediaAttr(p.coverImage)} alt="Project cover">`:'';const removeCover=$('removeProjectCoverButton');if(removeCover)removeCover.classList.toggle('hidden',!p.coverImage?.url);}$('projectName').textContent=p.name;$('projectAddress').textContent=p.address||'No address/context';$('projectTypeLabel').textContent=`${p.type.toUpperCase()} PROJECT`;$('profilePill').textContent=`${profile.role} · ${profile.name}`;const live=cloudStatus.state==='connected',pill=$('syncPill');pill.className=`sync-pill ${live?'connected':'local'}`;pill.innerHTML=`<svg class="sync-cloud-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 18h10a4.5 4.5 0 0 0 .4-9A6 6 0 0 0 6 9.5 4.25 4.25 0 0 0 7.5 18Z"/><path d="m9.5 13 2 2 3.5-4"/></svg><span class="dot"></span><span>${live?'Live sync':cloudStatus.state==='error'?'Cloud error':'Connecting…'}</span>`;pill.title=cloudStatus.message||'';}
 function renderStats(){const s=visibleProjectSnags(),active=s.filter(x=>x.status!=='resolved'&&!x.archived),progress=s.filter(x=>x.status==='in-progress'&&!x.archived),review=s.filter(x=>x.status==='review'&&!x.archived),resolved=s.filter(x=>x.status==='resolved');$('statActive').textContent=active.length;$('statProgress').textContent=progress.length;$('statReview').textContent=review.length;$('statResolved').textContent=resolved.length;if($('heroUnresolved'))$('heroUnresolved').textContent=active.length;const issueLabel=document.getElementById('heroIssueWord');if(issueLabel)issueLabel.textContent=active.length===1?'issue':'issues';if($('heroRequireAction'))$('heroRequireAction').textContent=s.filter(x=>['open','review'].includes(x.status)&&!x.archived).length;if($('heroRecentlyUpdated')){const cutoff=Date.now()-86400000;$('heroRecentlyUpdated').textContent=s.filter(x=>new Date(x.updatedAt).getTime()>=cutoff).length;}document.querySelectorAll('.stat-card').forEach(x=>x.classList.toggle('active',x.dataset.statFilter===view.status));}
 function renderFilters(){let n=0;if(view.category!=='all')n++;if(view.priority!=='all')n++;if(view.archived)n++;$('filterCount').textContent=n?`(${n})`:'';$('categoryFilter').value=view.category;$('priorityFilter').value=view.priority;$('archiveFilter').checked=view.archived;$('sortSelect').value=view.sort;}
@@ -1124,6 +1141,7 @@ async function initFirebase(cfg){
     if(run!==firebaseRun)return;
     diagStep('Authentication','ok',`${auth.currentUser.isAnonymous?'guest':'protected'} ${auth.currentUser.uid.slice(0,8)}…`);
     localStorage.setItem(LS.firebase,JSON.stringify(cfg));
+    await loadAppearancePreference();
     await restoreProjectsForCurrentUser();
     await loadCurrentMember();
     const legacyMigration=await migrateLegacyProjectIfNeeded();
