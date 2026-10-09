@@ -632,9 +632,9 @@ async function createSnag(e){
   if(createSnagPending){e?.preventDefault?.();return}
   createSnagPending=true;
   e.preventDefault();
-  if(!await requireCommercialAccess('createSnag'))return;
+  if(!await requireCommercialAccess('createSnag')){createSnagPending=false;return;}
   const submitter=e.submitter;
-  if(submitter?.value==='cancel')return $('snagDialog').close();
+  if(submitter?.value==='cancel'){createSnagPending=false;return $('snagDialog').close();}
   const description=$('snagDescriptionInput').value.trim();
   const enteredTitle=$('snagTitleInput').value.trim();
   const hasMedia=pendingFiles.length>0;
@@ -644,7 +644,7 @@ async function createSnag(e){
     error.textContent='Add a photo/video, a title, or a short description before creating the snag.';
     error.classList.remove('hidden');
     error.scrollIntoView({behavior:'smooth',block:'center'});
-    return;
+    createSnagPending=false;return;
   }
   const mediaLead=pendingFiles[0]?.type?.startsWith('video/')?'Video snag':pendingFiles[0]?.type?.startsWith('image/')?'Photo snag':'New snag';
   const title=enteredTitle||(description.split(/\n|[.!?]/)[0].trim().slice(0,90)||mediaLead);const id=uid(),t=now();$('createSnagSubmit').disabled=true;$('createSnagSubmit').textContent=pendingFiles.length?'Uploading…':'Saving…';try{const media=await prepareMedia(pendingFiles,`snag-projects/${selectedProjectId}/snags/${id}`);const assignee=$('snagAssigneeInput').value.trim(),match=await resolveAssigneeIdentity(assignee),creatorUid=firebase?.auth?.currentUser?.uid||null,assigneeId=match?.uid||match?.id||null,participantUids=[...new Set([creatorUid,assigneeId].filter(Boolean))];const snag={id,projectId:selectedProjectId,ref:nextRef(),title,category:$('snagCategoryInput').value,priority:$('snagPriorityInput').value,location:$('snagLocationInput').value.trim(),assignee,assigneeId,participantUids,description,outcome:$('snagOutcomeInput').value.trim(),status:'open',archived:false,createdAt:t,updatedAt:t,createdBy:profile.name,createdByUid:creatorUid,media,updates:[{id:uid(),type:'note',text:'Snag recorded.',author:profile.name,authorUid:creatorUid,role:profile.role,createdAt:t,media:[]} ]};state.snags.push(snag);markDirty(snag.id);saveState();if(firebase){await writeSnag(snag);clearDirty(snag.id);await emitSnagNotification('snag.created',snag,'snag.created:'+snag.id);}await markSnagSeen(id);$('snagDialog').close();$('snagForm').reset();pendingFiles=[];$('newMediaPreview').innerHTML='';toast('Snag created');render();openDetail(id);}catch(err){console.error(err);const msg=err?.message||'Could not save the snag';const formError=$('snagFormError');if(formError){formError.textContent=msg;formError.classList.remove('hidden');formError.scrollIntoView({behavior:'smooth',block:'center'});}toast(msg);}finally{$('createSnagSubmit').disabled=false;$('createSnagSubmit').textContent='Create snag';createSnagPending=false;}}
