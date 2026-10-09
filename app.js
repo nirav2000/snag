@@ -1,4 +1,4 @@
-const APP_BUILD='2026.10.09.1504';
+const APP_BUILD='2026.10.09.1620';
 const FIREBASE_VERSION='12.2.1';
 const LS={state:'snag-recorder-state-v1',firebase:'snag-recorder-firebase-v1',profile:'snag-recorder-profile-v1',access:'snag-recorder-shared-access-v1',guide:'snag-recorder-guide-v1',guidesEnabled:'snag-recorder-guides-enabled-v1',dirty:'snag-recorder-dirty-v1',userId:'snag-recorder-user-id-v1',migration:'snag-recorder-migration-v2',notificationPrompt:'snag-notification-choice-v1'};
 const now=()=>new Date().toISOString();
@@ -750,11 +750,81 @@ async function takeCameraTestPhoto(){
 async function recordVoice(id){if(mediaRecorder?.state==='recording'){mediaRecorder.stop();return;}if(!navigator.mediaDevices?.getUserMedia)return toast('Voice recording is not supported here');try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});voiceChunks=[];mediaRecorder=new MediaRecorder(stream);mediaRecorder.ondataavailable=e=>voiceChunks.push(e.data);mediaRecorder.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(voiceChunks,{type:mediaRecorder.mimeType||'audio/webm'});const file=new File([blob],`voice-${Date.now()}.webm`,{type:blob.type});await addUpdate(id,'Voice memo',[file]);};mediaRecorder.start();$('voiceButton').textContent='■ Stop recording';toast('Recording voice memo…');}catch(e){toast('Microphone permission was not available');}}
 function newSnag(){pendingFiles=[];$('newMediaPreview').innerHTML='';$('snagForm').reset();$('similarPanel').classList.add('hidden');$('snagFormError')?.classList.add('hidden');$('snagDialog').showModal();}
 function addPending(files){pendingFiles=[...pendingFiles,...files];renderTempPreview(pendingFiles,$('newMediaPreview'));$('newMediaPreview').querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{pendingFiles.splice(Number(b.dataset.i),1);addPending([]);});}
+function settingsTab(tab,{focus=false}={}){
+  for(const button of document.querySelectorAll('[data-settings-tab]')){
+    const active=button.dataset.settingsTab===tab;
+    button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;
+    if(active&&focus)button.focus();
+  }
+  for(const panel of document.querySelectorAll('.settings-panel'))panel.hidden=panel.id!=='settings-panel-'+tab;
+}
+function inviteUrl(id){
+  const url=new URL(location.origin+location.pathname);
+  url.searchParams.set('project',selectedProjectId);
+  url.searchParams.set('invite',id);
+  return url.toString();
+}
+function shareInvitationText(label){
+  return 'You have been invited to '+(project()?.name||'a Snag project')+' on Snag'+(label?' ('+label+')':'')+'. Open this private invitation link to join:';
+}
+function selectedInvitation(){
+  const url=$('shareLinkInput')?.value?.trim();
+  if(!url)throw new Error('Create or select an invitation first');
+  const parsed=new URL(url,location.href);
+  if(parsed.origin!==location.origin||parsed.pathname!==location.pathname||!parsed.searchParams.get('invite')||parsed.searchParams.get('project')!==selectedProjectId)throw new Error('Invitation link is not valid for this project');
+  return {url:parsed.toString(),label:$('shareInviteDescription')?.dataset.label||''};
+}
+function showInvitationLink(inviteId,label,role){
+  $('shareLinkInput').value=inviteUrl(inviteId);
+  $('shareInviteDescription').textContent=(project()?.name||'Project')+' · '+label+' · '+(role||'contractor');
+  $('shareInviteDescription').dataset.label=label;
+  $('shareInviteReady').hidden=false;
+  $('shareInviteReady').scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+async function copyInvitationLink(){
+  try{
+    const {url}=selectedInvitation();
+    if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(url);
+    else{
+      const field=$('shareLinkInput');field.focus();field.select();
+      if(!document.execCommand?.('copy'))throw new Error('Clipboard unavailable; select and copy the link');
+    }
+    toast('Invitation link copied');
+  }catch(e){toast(e.message)}
+}
+async function shareInvitationNative(){
+  let invite;
+  try{invite=selectedInvitation()}catch(e){toast(e.message);return}
+  const payload={title:'Snag project invitation',text:shareInvitationText(invite.label),url:invite.url};
+  if(typeof navigator.share==='function'){
+    try{await navigator.share(payload);return}
+    catch(e){if(e?.name==='AbortError')return;console.warn('Native sharing unavailable',e)}
+  }
+  await copyInvitationLink();
+  toast('Link copied. Paste it into WhatsApp, Messages or Mail.');
+}
+function shareInvitationChannel(channel){
+  let invite;
+  try{invite=selectedInvitation()}catch(e){toast(e.message);return}
+  const message=shareInvitationText(invite.label)+' '+invite.url;
+  let url;
+  if(channel==='whatsapp')url='https://wa.me/?text='+encodeURIComponent(message);
+  else if(channel==='email')url='mailto:?subject='+encodeURIComponent('Snag project invitation')+'&body='+encodeURIComponent(message);
+  else if(channel==='messages')url='sms:&body='+encodeURIComponent(message);
+  else return;
+  // Must remain a direct click-driven navigation to avoid iOS popup blockers.
+  if(channel==='messages'||channel==='email')location.href=url;
+  else window.open(url,'_blank','noopener,noreferrer');
+}
 async function shareProject(){
   if(!await requireCommercialAccess('shareProject'))return;
   if(!firebase?.auth?.currentUser)return toast('Cloud sharing is not connected yet');
-  $('shareLinkInput').value='';$('shareLabelInput').value='';$('shareRoleInput').value='contractor';$('shareAdminInput').checked=false;
-  await renderAccessLinks();$('shareDialog').showModal();
+  $('shareLabelInput').value='';$('shareRoleInput').value='contractor';$('shareAdminInput').checked=false;
+  $('shareLinkInput').value='';$('shareInviteReady').hidden=true;
+  $('shareProjectName').textContent=project()?.name||'Your project';
+  $('shareWarning').classList.add('hidden');
+  $('shareDialog').showModal();
+  await renderAccessLinks();
 }
 async function createShareLink(){
   if(!await requireCommercialAccess('shareProject'))return;
@@ -767,20 +837,30 @@ async function createShareLink(){
     if(snap.data()?.ownerUid!==auth.currentUser.uid)throw new Error('Only the project owner can create access links');
     const inviteId=randomCapability(),label=$('shareLabelInput').value.trim()||'Contractor access',role=$('shareRoleInput').value,admin=$('shareAdminInput').checked;
     await withTimeout(fsMod.setDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:true,label,role,admin,persistent:true,createdAt:now(),createdBy:auth.currentUser.uid}),9000,'Create access link');
-    const u=new URL(location.origin+location.pathname);u.searchParams.set('project',selectedProjectId);u.searchParams.set('invite',inviteId);
-    $('shareLinkInput').value=u.toString();await renderAccessLinks();toast('Unique access link created');
+    showInvitationLink(inviteId,label,role);
+    await renderAccessLinks();
+    toast('Unique invitation created. Share it with your contractor.');
   }catch(e){console.error(e);$('shareWarning').textContent=firebaseErrorMessage(e);$('shareWarning').classList.remove('hidden');toast(firebaseErrorMessage(e))}
   finally{btn.disabled=false;btn.textContent='Create unique link'}
 }
 async function renderAccessLinks(){
   const host=$('accessLinkList');if(!host||!firebase?.auth?.currentUser)return;
   try{
-    const {fsMod,db}=firebase,q=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'invites'));
-    const snap=await fsMod.getDocs(q);const rows=[];snap.forEach(d=>rows.push({id:d.id,...d.data()}));
+    const {fsMod,db,q}=firebase,query=fsMod.query(fsMod.collection(db,'snag_projects',selectedProjectId,'invites'));
+    const snap=await fsMod.getDocs(query),rows=[];snap.forEach(d=>rows.push({id:d.id,...d.data()}));
     rows.sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
-    host.innerHTML=rows.length?rows.map(x=>`<div class="access-link-row"><div><strong>${escapeHtml(x.label||'Access link')}</strong><span>${escapeHtml(x.role||'contractor')}${x.admin?' · Admin':''} · ${x.active?'Active':'Revoked'}</span></div>${x.active?`<button type="button" data-revoke-invite="${x.id}" class="secondary-button">Revoke</button>`:''}</div>`).join(''):'<p class="subtle">No access links yet.</p>';
-    host.querySelectorAll('[data-revoke-invite]').forEach(b=>b.onclick=()=>revokeInvite(b.dataset.revokeInvite));
-  }catch(e){host.innerHTML='<p class="subtle">Only the project owner can manage access links.</p>';}
+    host.innerHTML=rows.length?rows.map(x=>'<div class="access-link-row"><div class="access-link-info"><strong>'+escapeHtml(x.label||'Access link')+'</strong><span>'+escapeHtml(x.role||'contractor')+(x.admin?' · Admin':'')+' · '+(x.active?'Active':'Revoked')+'</span></div><div class="access-link-buttons">'+(x.active?'<button type="button" data-share-invite="'+escapeHtml(x.id)+'" class="share-again-button">Share</button><button type="button" data-revoke-invite="'+escapeHtml(x.id)+'" class="share-revoke-button">Revoke</button>':'')+'</div></div>').join(''):'<p class="share-help">No invitations yet. Create a unique link above.</p>';
+    host.querySelectorAll('[data-share-invite]').forEach(button=>button.onclick=()=>{
+      const item=rows.find(x=>x.id===button.dataset.shareInvite);
+      if(item)showInvitationLink(item.id,item.label||'Contractor access',item.role);
+    });
+    host.querySelectorAll('[data-revoke-invite]').forEach(button=>button.onclick=async()=>{
+      if(!confirm('Revoke this invitation and remove linked access?'))return;
+      try{await revokeInvite(button.dataset.revokeInvite);
+        if($('shareLinkInput').value===inviteUrl(button.dataset.revokeInvite)){$('shareLinkInput').value='';$('shareInviteReady').hidden=true}
+      }catch(e){toast(firebaseErrorMessage(e))}
+    });
+  }catch(e){host.innerHTML='<p class="share-help">Only the project owner can manage invitations.</p>';}
 }
 async function revokeInvite(inviteId){
   const {fsMod,db}=firebase;await fsMod.updateDoc(fsMod.doc(db,'snag_projects',selectedProjectId,'invites',inviteId),{active:false,revokedAt:now(),revokedBy:firebase.auth.currentUser.uid});
@@ -1183,7 +1263,13 @@ async function hardRefreshApp(){
   }catch(e){console.warn(e)}
   const u=new URL(location.href);u.searchParams.set('_build',Date.now());location.replace(u.toString());
 }
-function bind(){setupBulk();bindAnnotationCanvas();if($('notificationChoiceEnable'))$('notificationChoiceEnable').onclick=acceptInitialNotifications;if($('notificationChoiceLater'))$('notificationChoiceLater').onclick=deferInitialNotifications;if($('enableWebPushNotifications'))$('enableWebPushNotifications').onclick=enableSnagWebPush;$('editSnagForm').onsubmit=saveSnagEdit;$('closeGuideButton').onclick=finishGuide;$('finishGuideButton').onclick=finishGuide;if($('homeSearchInput'))$('homeSearchInput').onchange=e=>{view.search=e.target.value;setNav('snags');$('searchInput').value=view.search;renderList()};if($('homeFilterButton'))$('homeFilterButton').onclick=()=>{setNav('snags');$('filterPanel').classList.remove('hidden')};if($('homeGridButton'))$('homeGridButton').onclick=()=>setNav('snags');if($('seeAllSnags'))$('seeAllSnags').onclick=()=>setNav('snags');document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.onclick=()=>setNav(b.dataset.nav));if($('notificationButton'))$('notificationButton').onclick=()=>{setNav('home');setTimeout(()=>$('recentActivity')?.scrollIntoView({behavior:'smooth',block:'start'}),30)};$('feedbackButton').onclick=()=>{if(window.openSnagFeedback)window.openSnagFeedback();else toast('Feedback tool is loading…')};$('closeMyNotes').onclick=()=>$('myNotesDialog').close();$('addPrivateNote').onclick=addPrivateNote;$('annotationCancel').onclick=()=>$('annotateDialog').close();$('annotationSave').onclick=saveAnnotation;$('annotationUndo').onclick=()=>{annotationState.history.pop();redrawAnnotation()};$('annotationClear').onclick=()=>{annotationState.history=[];redrawAnnotation()};document.querySelectorAll('[data-annotation-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-annotation-tool]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');annotationState.colour=b.dataset.annotationTool==='yellow'?'#facc15':b.dataset.annotationTool==='black'?'#111827':'#ef4444'});document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('projectCoverInput').onchange=e=>{const f=e.target.files?.[0];e.target.value='';if(f)setProjectCover(f)};$('removeProjectCoverButton').onclick=removeProjectCover;$('manageRoomsButton').onclick=openRoomManager;$('openRoomManagerButton').onclick=openRoomManager;$('closeRoomManager').onclick=()=>$('roomManagerDialog').close();$('guidesEnabledInput').onchange=e=>{localStorage.setItem(LS.guidesEnabled,e.target.checked?'1':'0');toast(e.target.checked?'Quick guides enabled':'Quick guides disabled')};$('showGuideNowButton').onclick=()=>showGuide(isAdmin()?'owner':'contractor');$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;if($('syncPill'))$('syncPill').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;setNav('snags');render()});$('createProjectButton').onclick=async()=>{if(!await requireCommercialAccess('createProject'))return;const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProjectSetupButton').onclick=async()=>{const p=project();p.locations=$('projectLocationsInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.assignees=$('projectAssigneesInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.updatedAt=now();saveState();if(firebase)await ensureProjectRemote();render();toast('Project setup saved')};$('createShareLinkButton').onclick=createShareLink;$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));if(firebase?.auth?.currentUser)window.AppMonitor?.identify?.({uid:firebase.auth.currentUser.uid,username:profile.name,provider:firebase.auth.currentUser.providerData?.[0]?.providerId||(firebase.auth.currentUser.isAnonymous?'anonymous':'firebase'),isAnonymous:firebase.auth.currentUser.isAnonymous});render();toast('Identity saved')};if($('protectEmailButton'))$('protectEmailButton').onclick=protectAccessWithEmail;if($('signInProtectedButton'))$('signInProtectedButton').onclick=signInProtectedAccess;if($('resetProtectedPasswordButton'))$('resetProtectedPasswordButton').onclick=sendProtectedPasswordReset;$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});if($('buildBadge'))$('buildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};if($('mobileBuildBadge'))$('mobileBuildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=async()=>{await navigator.clipboard.writeText($('shareLinkInput').value);toast('Project link copied')};['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
+function bind(){setupBulk();
+  document.querySelectorAll('[data-settings-tab]').forEach(button=>{button.onclick=()=>settingsTab(button.dataset.settingsTab);button.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const tabs=[...document.querySelectorAll('[data-settings-tab]')],i=tabs.indexOf(button),next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;settingsTab(tabs[next].dataset.settingsTab,{focus:true})}});
+  $('settingsManageSharing').onclick=()=>{$('settingsDialog').close();shareProject().catch(e=>toast(e.message))};
+  $('shareNativeButton').onclick=shareInvitationNative;
+  $('shareWhatsApp').onclick=()=>shareInvitationChannel('whatsapp');
+  $('shareMessages').onclick=()=>shareInvitationChannel('messages');
+  $('shareEmail').onclick=()=>shareInvitationChannel('email');bindAnnotationCanvas();if($('notificationChoiceEnable'))$('notificationChoiceEnable').onclick=acceptInitialNotifications;if($('notificationChoiceLater'))$('notificationChoiceLater').onclick=deferInitialNotifications;if($('enableWebPushNotifications'))$('enableWebPushNotifications').onclick=enableSnagWebPush;$('editSnagForm').onsubmit=saveSnagEdit;$('closeGuideButton').onclick=finishGuide;$('finishGuideButton').onclick=finishGuide;if($('homeSearchInput'))$('homeSearchInput').onchange=e=>{view.search=e.target.value;setNav('snags');$('searchInput').value=view.search;renderList()};if($('homeFilterButton'))$('homeFilterButton').onclick=()=>{setNav('snags');$('filterPanel').classList.remove('hidden')};if($('homeGridButton'))$('homeGridButton').onclick=()=>setNav('snags');if($('seeAllSnags'))$('seeAllSnags').onclick=()=>setNav('snags');document.querySelectorAll('.bottom-nav [data-nav]').forEach(b=>b.onclick=()=>setNav(b.dataset.nav));if($('notificationButton'))$('notificationButton').onclick=()=>{setNav('home');setTimeout(()=>$('recentActivity')?.scrollIntoView({behavior:'smooth',block:'start'}),30)};$('feedbackButton').onclick=()=>{if(window.openSnagFeedback)window.openSnagFeedback();else toast('Feedback tool is loading…')};$('closeMyNotes').onclick=()=>$('myNotesDialog').close();$('addPrivateNote').onclick=addPrivateNote;$('annotationCancel').onclick=()=>$('annotateDialog').close();$('annotationSave').onclick=saveAnnotation;$('annotationUndo').onclick=()=>{annotationState.history.pop();redrawAnnotation()};$('annotationClear').onclick=()=>{annotationState.history=[];redrawAnnotation()};document.querySelectorAll('[data-annotation-tool]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-annotation-tool]').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');annotationState.colour=b.dataset.annotationTool==='yellow'?'#facc15':b.dataset.annotationTool==='black'?'#111827':'#ef4444'});document.querySelectorAll('[data-action="new-snag"]').forEach(b=>b.onclick=newSnag);$('newSnagButton').onclick=newSnag;$('projectButton').onclick=()=>$('projectDialog').showModal();$('projectCoverInput').onchange=e=>{const f=e.target.files?.[0];e.target.value='';if(f)setProjectCover(f)};$('removeProjectCoverButton').onclick=removeProjectCover;$('manageRoomsButton').onclick=openRoomManager;$('openRoomManagerButton').onclick=openRoomManager;$('closeRoomManager').onclick=()=>$('roomManagerDialog').close();$('guidesEnabledInput').onchange=e=>{localStorage.setItem(LS.guidesEnabled,e.target.checked?'1':'0');toast(e.target.checked?'Quick guides enabled':'Quick guides disabled')};$('showGuideNowButton').onclick=()=>showGuide(isAdmin()?'owner':'contractor');$('settingsButton').onclick=()=>$('settingsDialog').showModal();$('shareButton').onclick=shareProject;if($('syncPill'))$('syncPill').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeDetail').onclick=closeDetail;$('backdrop').onclick=closeDetail;$('snagForm').addEventListener('submit',createSnag);['photoInput','videoInput','fileInput'].forEach(id=>$(id).onchange=e=>{addPending([...e.target.files]);e.target.value='';});$('liveCameraButton').onclick=openCameraTest;$('cameraTestClose').onclick=closeCameraTest;$('cameraTestSwitch').onclick=switchCameraTest;$('cameraTestShutter').onclick=takeCameraTestPhoto;$('cameraTestLibrary').onclick=()=>$('photoInput').click();$('cameraTestDialog').addEventListener('cancel',e=>{e.preventDefault();closeCameraTest()});$('cameraTestDialog').addEventListener('close',stopCameraTest);$('searchInput').oninput=e=>{view.search=e.target.value;renderList()};$('filterButton').onclick=()=>{$('filterPanel').classList.toggle('hidden');$('filterButton').setAttribute('aria-expanded',!$('filterPanel').classList.contains('hidden'))};$('categoryFilter').onchange=e=>{view.category=e.target.value;render()};$('priorityFilter').onchange=e=>{view.priority=e.target.value;render()};$('archiveFilter').onchange=e=>{view.archived=e.target.checked;render()};$('sortSelect').onchange=e=>{view.sort=e.target.value;renderList()};$('clearFilters').onclick=()=>{view.category='all';view.priority='all';view.archived=false;render()};document.querySelectorAll('.stat-card').forEach(b=>b.onclick=()=>{view.status=b.dataset.statFilter;setNav('snags');render()});$('createProjectButton').onclick=async()=>{if(!await requireCommercialAccess('createProject'))return;const name=$('newProjectName').value.trim();if(!name)return toast('Give the project a name');const p={id:uid(),name,address:$('newProjectAddress').value.trim(),type:$('newProjectType').value,createdAt:now()};state.projects.push(p);saveState();selectProject(p.id);if(firebase?.auth?.currentUser)ensureProjectRemote().then(()=>subscribeFirebase()).catch(console.error);toast('Project created')};$('saveProjectSetupButton').onclick=async()=>{const p=project();p.locations=$('projectLocationsInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.assignees=$('projectAssigneesInput').value.split(/\n|,/).map(x=>x.trim()).filter(Boolean);p.updatedAt=now();saveState();if(firebase)await ensureProjectRemote();render();toast('Project setup saved')};$('createShareLinkButton').onclick=createShareLink;$('saveProfileButton').onclick=()=>{profile={name:$('profileNameInput').value.trim()||'Me',role:$('profileRoleInput').value};localStorage.setItem(LS.profile,JSON.stringify(profile));if(firebase?.auth?.currentUser)window.AppMonitor?.identify?.({uid:firebase.auth.currentUser.uid,username:profile.name,provider:firebase.auth.currentUser.providerData?.[0]?.providerId||(firebase.auth.currentUser.isAnonymous?'anonymous':'firebase'),isAnonymous:firebase.auth.currentUser.isAnonymous});render();toast('Identity saved')};if($('protectEmailButton'))$('protectEmailButton').onclick=protectAccessWithEmail;if($('signInProtectedButton'))$('signInProtectedButton').onclick=signInProtectedAccess;if($('resetProtectedPasswordButton'))$('resetProtectedPasswordButton').onclick=sendProtectedPasswordReset;$('connectFirebaseButton').onclick=connectFirebase;$('disconnectFirebaseButton').onclick=disconnectFirebase;$('retryCloudButton').onclick=()=>initFirebase(window.SNAG_FIREBASE_CONFIG).catch(e=>{console.error(e);render()});if($('buildBadge'))$('buildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};if($('mobileBuildBadge'))$('mobileBuildBadge').onclick=()=>{$('buildDialog').showModal();renderVersionLab();checkLatestBuild()};$('closeBuildDialog').onclick=()=>$('buildDialog').close();$('refreshAppButton').onclick=hardRefreshApp;$('copyShareLink').onclick=copyInvitationLink;['snagTitleInput','snagDescriptionInput','snagLocationInput'].forEach(id=>$(id).addEventListener('input',renderSimilar));}
 
 async function deleteOwnSeen(projectId,memberUid){
   const {fsMod,db}=firebase;try{const seen=await fsMod.getDocs(fsMod.collection(db,'snag_projects',projectId,'members',memberUid,'seen'));for(const d of seen.docs)await fsMod.deleteDoc(d.ref)}catch{}
