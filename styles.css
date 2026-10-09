@@ -307,3 +307,30 @@ body{overflow-x:hidden}
  .settings-tabs{padding:9px 10px}
  .settings-tabs button{font-size:12px}
 }
+
+/* Dark settings, all six panels share the same surface and form treatment. */
+.settings-organized{background:#222325;color:#f6f6f7;border:1px solid #414348}
+.settings-organized .modal-header,.settings-organized .settings-tabs{background:#222325;border-color:#414348}
+.settings-organized .modal-header h2,.settings-organized .settings-panel-intro h3,.settings-organized h3{color:#f7f7f8}
+.settings-organized .eyebrow,.settings-organized .section-kicker{color:#aeb3bd}
+.settings-organized .settings-tabs{display:flex;overflow-x:auto;gap:5px;scrollbar-width:none;padding:12px 16px}
+.settings-organized .settings-tabs::-webkit-scrollbar{display:none}
+.settings-organized .settings-tabs button{flex:0 0 auto;min-width:72px;color:#b5b8c0;background:transparent}
+.settings-organized .settings-tabs button[aria-selected=true]{background:#41444a;color:white}
+.settings-organized .settings-tabs button:focus-visible{outline:2px solid #ff9b8a}
+.settings-organized .modal-body,.settings-organized .settings-panel,.settings-organized .settings-panel-stack{background:#222325;color:#f5f5f6}
+.settings-organized .settings-card,.settings-organized .settings-panel-stack>section{background:#2d2f33;border:1px solid #47494e;border-radius:16px;padding:15px}
+.settings-organized .settings-intro,.settings-organized .subtle,.settings-organized .microcopy,.settings-organized .notice,.settings-organized .settings-card p{color:#b9bdc5}
+.settings-organized label,.settings-organized summary,.settings-organized strong{color:#eeeef0}
+.settings-organized input:not([type=checkbox]),.settings-organized textarea,.settings-organized select{background:#191b1e;color:#fff;border:1px solid #565961;border-radius:11px}
+.settings-organized input::placeholder,.settings-organized textarea::placeholder{color:#a1a5ae}
+.settings-organized .secondary-button,.settings-organized .text-button{background:#42454b;color:#fff;border:1px solid #5b5e65;border-radius:11px}
+.settings-organized .primary-button{background:#ff634c;color:#151515;border-color:#ff634c;border-radius:11px}
+.settings-organized .icon-button{background:#383b40;color:#fff;border:1px solid #5b5e65}
+.settings-organized .badge.neutral{background:#42454b;color:#eee}
+.settings-organized .badge.good{background:#123b2c;color:#44d68a}
+.settings-organized .notice.warning{background:#442e2c;color:#ffd0c7}
+.settings-organized .settings-card .settings-card{background:#25272b}
+.share-quick-actions button{padding:10px;min-height:60px}
+.share-quick-actions button svg{width:34px;height:34px}
+.share-quick-actions button:hover{background:#25272b}
