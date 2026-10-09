@@ -223,3 +223,8 @@ body{overflow-x:hidden}
 .bulk-snag-row:has(input:disabled){grid-template-columns:minmax(0,1fr)}
 .bulk-controls .microcopy{margin:8px 0 0}
 @media(max-width:650px){.bulk-controls{padding:12px}.bulk-actions{display:grid;grid-template-columns:minmax(0,1fr)}.bulk-actions label{min-width:0}.bulk-snag-row{grid-template-columns:32px minmax(0,1fr)}}
+
+/* Bulk selection is deliberately opt-in. */
+.bulk-snag-row:not(.bulk-active){grid-template-columns:minmax(0,1fr)}
+.bulk-snag-row:not(.bulk-active)>.bulk-row-select{display:none}
+#bulkModeToggle{margin:8px 0 12px}
