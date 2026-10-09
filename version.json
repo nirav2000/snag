@@ -1,6 +1,6 @@
 {
-  "build": "2026.10.09.2030",
-  "publishedAt": "2026-10-09T20:30:00+01:00",
+  "build": "2026.10.09.2145",
+  "publishedAt": "2026-10-09T21:45:00+01:00",
   "channel": "release",
   "stableRef": "stable",
   "stableBuild": "2026.09.28.1053",
@@ -50,6 +50,11 @@
     "settings-responsive-layout-v2",
     "theme-persistence-and-pwa-cache-v2",
     "invite-list-loading-retry-v2",
-    "uniform-theme-snag-cards-v2"
+    "uniform-theme-snag-cards-v2",
+    "cloud-appearance-preferences-v1",
+    "hero-photo-camera-project-details-v1",
+    "duplicate-update-guard-v1",
+    "account-upgrade-cta-v2",
+    "responsive-dialog-audit-v3"
   ]
 }
