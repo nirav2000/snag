@@ -1256,10 +1256,15 @@ async function subscribeFirebase(){
   const q=restricted?fsMod.query(col,fsMod.where('participantUids','array-contains',auth.currentUser.uid)):fsMod.query(col,fsMod.orderBy('updatedAt','desc'));
   unsubscribe=fsMod.onSnapshot(q,async snap=>{
     const projectAtSnapshot=selectedProjectId,allowedIds=new Set();
+    const changes=snap.docChanges();
+    const changedIds=new Set(changes.filter(x=>x.type!=='removed').map(x=>x.doc.id));
     for(const d of snap.docs){
-      allowedIds.add(d.id);const data={id:d.id,...d.data()},existing=state.snags.find(x=>x.id===data.id);
+      allowedIds.add(d.id);
+      if(!changedIds.has(d.id))continue;
+      const data={id:d.id,...d.data()},existing=state.snags.find(x=>x.id===data.id);
       try{const us=await fsMod.getDocs(fsMod.collection(db,'snag_projects',projectAtSnapshot,'snags',d.id,'updates'));data.updates=us.docs.map(x=>({id:x.id,...x.data()}))}
       catch(e){console.warn('Could not refresh snag updates',d.id,e);data.updates=existing?.updates||[]}
+      if(projectAtSnapshot!==selectedProjectId)return;
       const i=state.snags.findIndex(x=>x.id===data.id);if(i>=0)state.snags[i]=data;else state.snags.push(data);clearDirty(data.id);
     }
     if(projectAtSnapshot!==selectedProjectId)return;
