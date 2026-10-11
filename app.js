@@ -1129,16 +1129,30 @@ function instrumentFirestoreModule(raw){
   wrapped.updateDoc=async(...a)=>{const x=await raw.updateDoc(...a);mon()?.write(1,label(a[0]),'Snag','snag-509418','(default)');return x};
   wrapped.deleteDoc=async(...a)=>{const x=await raw.deleteDoc(...a);mon()?.del(1,label(a[0]),'Snag','snag-509418','(default)');return x};
   wrapped.onSnapshot=(ref,next,error,complete)=>{
-    mon()?.listener(1,label(ref),'Snag','snag-509418','(default)');
+    const name=label(ref),monAtStart=mon();
+    const tracker=monAtStart?.trackListener?.({
+      name,app:'Snag',project:'snag-509418',database:'(default)',
+      source:'snag/app.js instrumentFirestoreModule',
+      purpose:name==='snags'?'Live project snag list':name==='seen state'?'Track which updates have been seen':'Live private notes',
+      trigger:'on initial snapshot, matching changes or reconnection'
+    });
+    if(!tracker)monAtStart?.listener(1,name,'Snag','snag-509418','(default)');
     let first=true;
     const counted=snap=>{
-      let n=1;
-      if(Array.isArray(snap?.docs)){n=first?Math.max(1,snap.size||0):Math.max(0,snap.docChanges?.().length||0)}
-      if(n)mon()?.read(n,label(ref),'Snag','snag-509418','(default)');
+      tracker?.snapshot(snap);
+      let n=0;
+      if(Array.isArray(snap?.docs)){
+        n=first?Math.max(0,snap.size||0):Math.max(0,snap.docChanges?.().length||0);
+      }else if(snap?.exists?.())n=1;
+      // A cached callback does not establish a new server read.
+      if(n&&!snap?.metadata?.fromCache)mon()?.read(n,name,'Snag','snag-509418','(default)');
       first=false;return typeof next==='function'?next(snap):next?.next?.(snap);
     };
-    if(typeof next==='function')return raw.onSnapshot(ref,counted,error,complete);
-    return raw.onSnapshot(ref,{next:counted,error:e=>next?.error?.(e),complete:()=>next?.complete?.()});
+    const failed=e=>{tracker?.error(e);if(typeof next==='function')return error?.(e);return next?.error?.(e)};
+    let stop;
+    if(typeof next==='function')stop=raw.onSnapshot(ref,counted,failed,complete);
+    else stop=raw.onSnapshot(ref,{next:counted,error:failed,complete:()=>next?.complete?.()});
+    return ()=>{tracker?.stop();stop?.()};
   };
   return wrapped;
 }
