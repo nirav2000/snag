@@ -4,9 +4,9 @@ Snag is a mobile-first property snagging and shared completion workflow for home
 
 ## Release
 
-Current release: **2026.09.27.1715**
+Current release: **2026.11.02.1550**
 
-The release keeps the existing Snag data and Version Lab compatibility surface while adding multi-customer accounts, stronger tenant isolation, privacy controls and the commercial/payment foundation.
+This release retains existing Snag projects and Version Lab history while fixing premature cloud error statuses, improving Firebase connection diagnostics and restoring sync after signing into a protected account.
 
 ## Current product
 
