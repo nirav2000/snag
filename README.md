@@ -4,7 +4,7 @@ Snag is a mobile-first property snagging and shared completion workflow for home
 
 ## Release
 
-Current release: **2026.11.02.1550**
+Current release: **2026.11.02.1911**
 
 This release retains existing Snag projects and Version Lab history while fixing premature cloud error statuses, improving Firebase connection diagnostics and restoring sync after signing into a protected account.
 
@@ -119,3 +119,7 @@ Live checkout remains unavailable until the Stripe secret and webhook secret are
 The global setting is stored by the shared App Monitor service. The developer panel appears in Snag only when the browser has a valid App Monitor admin session. It controls whether ordinary users see the telemetry opt-out switch. The default is `false`, so telemetry is enabled and the user switch is hidden.
 
 The App Monitor Worker source remains single-source in `nirav2000/Apps`. Because Cloudflare deployment credentials currently live in the Snag repository, `.github/workflows/deploy-shared-app-monitor.yml` checks the shared source hourly and deploys it only when the Worker build differs.
+
+### Cloud identity recovery (2026.11.02.1911)
+
+If the original kk-syllabus account can read a project but the new Snag Firebase identity cannot read the migrated project, Snag now stops rather than creating or claiming a duplicate. It shows an explicit sign-in-required status and lets the user download the local records before changing accounts. The original Firestore security rules remain unchanged. If no protected Snag account exists, recovery requires an authorised administrative procedure proving original ownership; anonymous accounts cannot be silently transferred. The migration also refuses to replace newer local snags with older legacy snapshots.

@@ -1,6 +1,6 @@
 {
-  "build": "2026.11.02.1550",
-  "publishedAt": "2026-11-02T15:50:55.368Z",
+  "build": "2026.11.02.1911",
+  "publishedAt": "2026-11-02T19:12:17.765Z",
   "channel": "release",
   "stableRef": "stable",
   "stableBuild": "2026.09.28.1053",
@@ -62,6 +62,10 @@
     "settings-tab-scroll-reset-v1",
     "cloud-connection-watchdog-safe-recovery-v1",
     "cloud-error-stage-diagnostics-v1",
-    "protected-sign-in-reconnection-v1"
+    "protected-sign-in-reconnection-v1",
+    "legacy-migration-owner-check-v1",
+    "recover-original-firebase-account-v1",
+    "local-data-backup-v1",
+    "accurate-cloud-status-v1"
   ]
 }
