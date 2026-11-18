@@ -25,7 +25,7 @@ jobs:
           try{
             const page=await fetch('https://www.lg.com/uk/laundry/washing-machines/f4y511wwla1/',{headers:{'User-Agent':'Mozilla/5.0'},signal:AbortSignal.timeout(12000)});
             const html=await page.text();
-            const paths=[...html.matchAll(/(?:https?:\\/\\/|\\/content\\/dam\\/)[^"'<>\\s]{15,450}\\.(?:jpg|jpeg|png|webp)(?:\\?[^"'<>\\s]*)?/gi)].map(m=>m[0].replaceAll('&amp;','&'));
+            const paths=html.match(/.{0,90}(?:F4Y511WWLA1|uk-wm05|front-view).{0,140}/gi)||[];
             console.log('WASHER PAGE',page.status,html.length,'matching images',paths.filter(x=>/F4Y511WWLA1|f4y511wwla1|uk-wm05/i.test(x)).slice(0,35));
             console.log('OG IMAGE',html.match(/<meta[^>]+(?:og:image|twitter:image)[^>]+>/gi)?.slice(0,6));
           }catch(e){console.log('WASHER PAGE ERROR',e.message)}
