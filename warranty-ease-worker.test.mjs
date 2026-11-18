@@ -63,6 +63,28 @@ let verified=await req('/backups/test-passkey','PUT','',{'X-App-Monitor-Session'
 assert.equal(verified.status,201,'passkey may upload only encrypted archive bytes');
 assert.equal((await req('/backups/test-not-encrypted','PUT','',{'X-App-Monitor-Session':appSession,'Content-Type':'application/octet-stream','X-Warranty-Digest':hash},new TextEncoder().encode('private photo plaintext'))).status,400);
 assert.ok(boundCalls>=6,'All passkey requests should cross the internal service binding');
+
+const originalPhotoFetch=globalThis.fetch;
+const imagesRequested=[];
+globalThis.fetch=async(input,options={})=>{
+ const url=String(input);
+ if(url.startsWith('https://www.lg.com/content/dam/')||url.startsWith('https://aws-obg-image-lb-1.tcl.com/')){
+   imagesRequested.push(url);
+   assert.equal(options.redirect,'manual','never follow unvalidated manufacturer redirects');
+   return new Response(Uint8Array.from([0xff,0xd8,0xff,0xe0,0,0,0,1]),{headers:{'Content-Type':'image/jpeg'}});
+ }
+ return originalPhotoFetch(input,options);
+};
+assert.equal((await req('/product-photos/lg-f4y511wwla1','GET','',{'X-App-Monitor-Session':appSession})).status,200);
+assert.equal((await req('/product-photos/lg-rhx1009nwk','GET','',{'X-App-Monitor-Session':appSession})).status,200);
+assert.equal((await req('/product-photos/tcl-65c8l','GET','',{'X-App-Monitor-Session':appSession})).status,200);
+assert.equal(imagesRequested.length,3);
+assert.equal((await req('/product-photos/not-approved','GET','',{'X-App-Monitor-Session':appSession})).status,404);
+assert.equal((await req('/product-photos/lg-f4y511wwla1','GET')).status,401);
+assert.equal((await req('/product-photos/lg-f4y511wwla1','POST','',{'X-App-Monitor-Session':appSession})).status,405);
+globalThis.fetch=originalPhotoFetch;
+console.log('Manufacturer image importer: three approved IDs only, passkey gate, no arbitrary URL proxy');
+
 env.APP_MONITOR_AUTH={fetch:async()=>new Response('service down',{status:503})};
 assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':appSession})).status,401,'shared passkey outage must fail closed');
 delete env.APP_MONITOR_AUTH;

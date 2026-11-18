@@ -54,6 +54,36 @@ async function verifyPasskeySession(session,env){
      !body?.expiresAt||Date.parse(body.expiresAt)<=Date.now())throw Error('passkey-not-authorised');
   return OWNER;
 }
+
+// Publicly documented product catalogue. Never accept a caller-supplied fetch URL:
+// fixed HTTPS endpoints avoid SSRF and restrict retrieval to model-matched photos.
+const MANUFACTURER_PHOTOS=Object.freeze({
+ 'lg-f4y511wwla1':'https://www.lg.com/content/dam/channel/wcms/uk/images/washing-machines/f4y511wwla1/gallery/1100x730/1100-730_01_Vivace_R350_11kg_White_F4Y3EBP0W_UK_Front.jpg',
+ 'lg-rhx1009nwk':"https://www.lg.com/content/dam/channel/wcms/nl/1--huishoudelijke-producten-nieuw/stella%27s-stuff/dryers/rhx1009nwk/rhx1009nwk/rhx1009nwk-2010x1334_V2.jpg/jcr%3Acontent/renditions/thum-1600x1062.jpeg",
+ 'tcl-65c8l':'https://aws-obg-image-lb-1.tcl.com/content/dam/brandsite/region/hr/product/tv/c8l/tcl-65-c8l-hero-front-olympic.png?t=1781059223473&w=800'
+});
+const MAX_MANUFACTURER_PHOTO_BYTES=8*1024*1024;
+async function fetchManufacturerPhoto(id,origin){
+ const url=MANUFACTURER_PHOTOS[id];if(!url)return err('No verified manufacturer image for this model',404,origin);
+ // This is an owner-only on-demand retrieval for personal reference, never a
+ // public rebroadcast, and never authentication or a claim-evidence photograph.
+ let response;
+ try{response=await fetch(url,{redirect:'manual',headers:{Accept:'image/jpeg,image/png,image/webp'}});}
+ catch(_){return err('Manufacturer image temporarily unavailable',502,origin);}
+ if(!response.ok)return err('Manufacturer image temporarily unavailable',502,origin);
+ const len=Number(response.headers.get('Content-Length')||0);
+ if(len>MAX_MANUFACTURER_PHOTO_BYTES)return err('Manufacturer image exceeds supported size',413,origin);
+ const mime=(response.headers.get('Content-Type')||'').split(';')[0].trim().toLowerCase();
+ if(!['image/jpeg','image/png','image/webp'].includes(mime))return err('Manufacturer did not provide a supported image',415,origin);
+ const bytes=new Uint8Array(await response.arrayBuffer());
+ if(!bytes.length||bytes.length>MAX_MANUFACTURER_PHOTO_BYTES)return err('Manufacturer image exceeds supported size',413,origin);
+ const valid=mime==='image/jpeg'?bytes.length>=3&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255:
+  mime==='image/png'?bytes.length>=8&&bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71:
+  bytes.length>=12&&String.fromCharCode(...bytes.slice(0,4))==='RIFF'&&String.fromCharCode(...bytes.slice(8,12))==='WEBP';
+ if(!valid)return err('Manufacturer image format validation failed',415,origin);
+ return new Response(bytes,{status:200,headers:{...cors(origin),'Content-Type':mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
+}
+
 const archiveIdValid=id=>/^[A-Za-z0-9-]{5,80}$/.test(id||'');
 function objectPath(id){return `warranty-ease/v1/${OWNER}/archives/${id}.encrypted`;}
 function manifestPath(id){return `warranty-ease/v1/${OWNER}/archives/${id}.manifest.json`;}
@@ -90,7 +120,7 @@ export default {
       return json({ok:true,service:'warranty-ease-api',schema:1,passkeyBindingReady,
         ...(authServiceReachable===undefined?{}:{authServiceReachable,authServiceHttpStatus,authServiceErrorType})},200,origin);
     }
-    if(!url.pathname.startsWith('/v1/backups'))return err('Not found',404,origin);
+    if(!url.pathname.startsWith('/v1/backups')&&!url.pathname.startsWith('/v1/product-photos/'))return err('Not found',404,origin);
     const raw=request.headers.get('Authorization')||'';
     const session=request.headers.get('X-App-Monitor-Session')||'';
     if(!raw.startsWith('Bearer ')&&!session)return err('Sign-in required',401,origin);
@@ -98,6 +128,7 @@ export default {
       if(raw.startsWith('Bearer '))await verifyFirebase(raw.slice(7));
       else await verifyPasskeySession(session,env);
     }catch(_){return err('Invalid or expired owner sign-in',401,origin);}
+    if(url.pathname.startsWith('/v1/product-photos/')){if(request.method!=='GET')return err('Method not allowed',405,origin);const id=url.pathname.slice('/v1/product-photos/'.length);return fetchManufacturerPhoto(id,origin);}
     if(!env.WARRANTY_STORE)return err('Private storage not configured',503,origin);
     if(url.pathname==='/v1/backups'&&request.method==='GET'){
       const prefix=`warranty-ease/v1/${OWNER}/archives/`;
