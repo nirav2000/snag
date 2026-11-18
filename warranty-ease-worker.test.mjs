@@ -39,6 +39,8 @@ const expectedAuth='https://apps-monitor-api.nirav2000-github.workers.dev/app-mo
 let boundCalls=0;
 env.APP_MONITOR_AUTH={fetch:async input=>{
  boundCalls++;
+ if(new URL(input.url).pathname==='/health')
+   return Response.json({ok:true,service:'apps-monitor-api',r2Bound:true});
  assert.equal(new URL(input.url).toString(),expectedAuth,'Service Binding targets the shared session validation endpoint');
  assert.equal(input.method,'GET');
  assert.equal(input.headers.get('Origin'),'https://nirav2000.github.io');
@@ -47,6 +49,11 @@ env.APP_MONITOR_AUTH={fetch:async input=>{
  const method=session===appSession?'passkey':'recovery';
  return Response.json({ok:true,method,expiresAt:new Date(Date.now()+300000).toISOString()});
 }};
+const authHealth=await req('/health?checkAuth=1');
+assert.equal(authHealth.status,200);
+const healthBody=await authHealth.json();
+assert.equal(healthBody.passkeyBindingReady,true);
+assert.equal(healthBody.authServiceReachable,true,'internal service binding must call the real auth Worker health route');
 assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':appSession})).status,200,'verified owner passkey may read encrypted backup list');
 assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':recoverySession})).status,401,'recovery-only session must fail');
 assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':badSession})).status,401,'unknown session must fail closed');
