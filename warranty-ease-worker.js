@@ -64,7 +64,7 @@ export default {
     const url=new URL(request.url);
     if(url.pathname==='/v1/health'&&request.method==='GET'){
       const passkeyBindingReady=typeof env.APP_MONITOR_AUTH?.fetch==='function';
-      let authServiceReachable;
+      let authServiceReachable,authServiceHttpStatus=0,authServiceErrorType='';
       // Prove the internal Worker-to-Worker binding without accepting a session
       // or accessing any warranty data; only on an explicit diagnostic request.
       if(url.searchParams.get('checkAuth')==='1'){
@@ -75,15 +75,16 @@ export default {
               'https://apps-monitor-api.nirav2000-github.workers.dev/health',
               {method:'GET',cache:'no-store',redirect:'error'}
             ));
+            authServiceHttpStatus=response.status;
             if(response.ok){
               const data=await response.json();
               authServiceReachable=data?.ok===true&&data?.service==='apps-monitor-api'&&data?.r2Bound===true;
             }
-          }catch(_){ /* diagnostic only: regular local access is unaffected */ }
+          }catch(error){authServiceErrorType=String(error?.name||'FetchError').slice(0,48); /* no secrets or bodies logged */ }
         }
       }
       return json({ok:true,service:'warranty-ease-api',schema:1,passkeyBindingReady,
-        ...(authServiceReachable===undefined?{}:{authServiceReachable})},200,origin);
+        ...(authServiceReachable===undefined?{}:{authServiceReachable,authServiceHttpStatus,authServiceErrorType})},200,origin);
     }
     if(!url.pathname.startsWith('/v1/backups'))return err('Not found',404,origin);
     const raw=request.headers.get('Authorization')||'';
