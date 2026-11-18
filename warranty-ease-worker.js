@@ -46,7 +46,7 @@ async function verifyPasskeySession(session,env){
   // between two Workers on the same zone can return 404/1042 even when healthy.
   const response=await env.APP_MONITOR_AUTH.fetch(new Request(PASSKEY_SESSION_URL,{method:'GET',
     headers:{'X-App-Monitor-Session':session,'Origin':ALLOWED_ORIGIN,'Accept':'application/json'},
-    cache:'no-store',redirect:'error'}));
+    cache:'no-store',redirect:'manual'}));
   if(!response.ok)throw Error('passkey-session-unverified');
   const body=await response.json();
   if(body?.ok!==true||body?.method!=='passkey'||
@@ -73,7 +73,7 @@ export default {
           try{
             const response=await env.APP_MONITOR_AUTH.fetch(new Request(
               'https://apps-monitor-api.nirav2000-github.workers.dev/health',
-              {method:'GET',cache:'no-store',redirect:'error'}
+              {method:'GET',cache:'no-store',redirect:'manual'}
             ));
             authServiceHttpStatus=response.status;
             if(response.ok){
