@@ -37,13 +37,16 @@ async function verifyFirebase(token){
   if(!valid)throw new Error('signature');
   return payload.sub;
 }
-async function verifyPasskeySession(session){
+async function verifyPasskeySession(session,env){
   // Session tokens are opaque capabilities, not Firebase IDs; only App Monitor
   // may confirm they were issued following a hardware/user-verified WebAuthn login.
   if(!/^[A-Za-z0-9._-]{32,160}$/.test(session||''))throw Error('invalid-passkey-session');
-  const response=await fetch(PASSKEY_SESSION_URL,{method:'GET',
+  if(!env.APP_MONITOR_AUTH||typeof env.APP_MONITOR_AUTH.fetch!=='function')throw Error('shared-auth-service-binding-missing');
+  // Use an account-internal Service Binding. Public workers.dev fetch calls
+  // between two Workers on the same zone can return 404/1042 even when healthy.
+  const response=await env.APP_MONITOR_AUTH.fetch(new Request(PASSKEY_SESSION_URL,{method:'GET',
     headers:{'X-App-Monitor-Session':session,'Origin':ALLOWED_ORIGIN,'Accept':'application/json'},
-    cache:'no-store',redirect:'error'});
+    cache:'no-store',redirect:'error'}));
   if(!response.ok)throw Error('passkey-session-unverified');
   const body=await response.json();
   if(body?.ok!==true||body?.method!=='passkey'||
@@ -66,7 +69,7 @@ export default {
     if(!raw.startsWith('Bearer ')&&!session)return err('Sign-in required',401,origin);
     try{
       if(raw.startsWith('Bearer '))await verifyFirebase(raw.slice(7));
-      else await verifyPasskeySession(session);
+      else await verifyPasskeySession(session,env);
     }catch(_){return err('Invalid or expired owner sign-in',401,origin);}
     if(!env.WARRANTY_STORE)return err('Private storage not configured',503,origin);
     if(url.pathname==='/v1/backups'&&request.method==='GET'){
