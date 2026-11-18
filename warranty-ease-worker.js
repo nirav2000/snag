@@ -10,9 +10,10 @@ const PROJECT='kk-syllabus';
 const JWK_ENDPOINT='https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const PASSKEY_SESSION_URL='https://apps-monitor-api.nirav2000-github.workers.dev/app-monitor/auth/session';
 const LIMIT=30*1024*1024;
+const PART_LIMIT=12*1024*1024, MAX_PARTS=12, MAX_TOTAL=PART_LIMIT*MAX_PARTS;
 const encoder=new TextEncoder();
 let jwks=null,jwksExpiry=0;
-function cors(origin){return {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin',...(origin===ALLOWED_ORIGIN?{'Access-Control-Allow-Origin':ALLOWED_ORIGIN,'Access-Control-Allow-Methods':'GET,PUT,OPTIONS','Access-Control-Allow-Headers':'Authorization,X-App-Monitor-Session,Content-Type,X-Warranty-Digest','Access-Control-Max-Age':'1200'}:{})};}
+function cors(origin){return {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin',...(origin===ALLOWED_ORIGIN?{'Access-Control-Allow-Origin':ALLOWED_ORIGIN,'Access-Control-Allow-Methods':'GET,PUT,POST,OPTIONS','Access-Control-Allow-Headers':'Authorization,X-App-Monitor-Session,Content-Type,X-Warranty-Digest','Access-Control-Expose-Headers':'X-Warranty-Digest,X-Warranty-Format','Access-Control-Max-Age':'1200'}:{})};}
 function json(value,status=200,origin=''){return new Response(JSON.stringify(value),{status,headers:cors(origin)});}
 function decodeUrlBase64(value){const b64=value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=');return Uint8Array.from(atob(b64),c=>c.charCodeAt(0));}
 async function verifyFirebase(token){
@@ -55,6 +56,9 @@ async function verifyPasskeySession(session,env){
 }
 const archiveIdValid=id=>/^[A-Za-z0-9-]{5,80}$/.test(id||'');
 function objectPath(id){return `warranty-ease/v1/${OWNER}/archives/${id}.encrypted`;}
+function manifestPath(id){return `warranty-ease/v1/${OWNER}/archives/${id}.manifest.json`;}
+function partPath(id,index){return `warranty-ease/v1/${OWNER}/parts/${id}/${String(index).padStart(3,'0')}.encrypted`;}
+function sha256Hex(bytes){return crypto.subtle.digest('SHA-256',bytes).then(h=>Array.from(new Uint8Array(h),b=>b.toString(16).padStart(2,'0')).join(''));}
 function err(message,status,origin){return json({error:message},status,origin);}
 export default {
   async fetch(request,env){
@@ -108,8 +112,60 @@ export default {
         if(!data.cursor)throw Error('R2 did not return a continuation cursor');
         cursor=data.cursor;
       }
-      const backups=objects.map(x=>({id:x.key.slice(prefix.length).replace(/\.encrypted$/,''),created:x.uploaded?.toISOString?.()||'',size:x.size||0,sha256:x.customMetadata?.sha256||''})).filter(x=>archiveIdValid(x.id)).sort((a,b)=>b.created.localeCompare(a.created));
+      const backups=objects.flatMap(x=>{
+        const file=x.key.slice(prefix.length);
+        const chunked=file.endsWith('.manifest.json');
+        if(!chunked&&!file.endsWith('.encrypted'))return [];
+        const id=file.slice(0,-(chunked?'.manifest.json'.length:'.encrypted'.length));
+        if(!archiveIdValid(id))return [];
+        return [{id,created:x.uploaded?.toISOString?.()||'',size:chunked?Number(x.customMetadata?.bytes)||0:x.size||0,sha256:x.customMetadata?.sha256||'',format:chunked?'chunked':'single'}];
+      }).sort((a,b)=>b.created.localeCompare(a.created));
       return json({backups:backups.slice(0,100),truncated,backupsCount:objects.length},200,origin);
+    }
+    // Immutable, encrypted fragment transfer. Fragments belong to an archive ID and are
+    // invisible to list/restore until its final manifest is safely committed.
+    const partMatch=url.pathname.match(/^\/v1\/backups\/([A-Za-z0-9-]{5,80})\/parts\/([0-9]{1,2})$/);
+    if(partMatch){
+      const id=partMatch[1],index=Number(partMatch[2]);
+      if(index>=MAX_PARTS||String(index)!==partMatch[2])return err('Invalid part index',400,origin);
+      const path=partPath(id,index);
+      if(request.method==='PUT'){
+        if((request.headers.get('Content-Type')||'').split(';')[0]!=='application/octet-stream')return err('Encrypted fragment required',415,origin);
+        if(await env.WARRANTY_STORE.head(objectPath(id))||await env.WARRANTY_STORE.head(manifestPath(id))||await env.WARRANTY_STORE.head(path))return err('Encrypted snapshot/part already exists',409,origin);
+        const part=await request.arrayBuffer();
+        if(!part.byteLength||part.byteLength>PART_LIMIT)return err('Fragment exceeds safe maximum',413,origin);
+        if(index===0&&new TextDecoder().decode(new Uint8Array(part).slice(0,8))!=='WEASE02!')return err('Expected encrypted Warranty Ease archive',400,origin);
+        const sha=await sha256Hex(part);
+        if(sha!==request.headers.get('X-Warranty-Digest'))return err('Fragment checksum mismatch',400,origin);
+        await env.WARRANTY_STORE.put(path,part,{httpMetadata:{contentType:'application/octet-stream'},customMetadata:{sha256:sha,part:String(index)}});
+        return json({ok:true,id,index,bytes:part.byteLength,sha256:sha},201,origin);
+      }
+      if(request.method==='GET'){
+        const obj=await env.WARRANTY_STORE.get(path);
+        if(!obj)return err('Encrypted fragment not found',404,origin);
+        return new Response(obj.body,{status:200,headers:{...cors(origin),'Content-Type':'application/octet-stream','X-Warranty-Digest':obj.customMetadata?.sha256||''}});
+      }
+      return err('Method not allowed',405,origin);
+    }
+    const complete=url.pathname.match(/^\/v1\/backups\/([A-Za-z0-9-]{5,80})\/complete$/);
+    if(complete){
+      if(request.method!=='POST')return err('Method not allowed',405,origin);
+      const id=complete[1];
+      if(await env.WARRANTY_STORE.head(objectPath(id))||await env.WARRANTY_STORE.head(manifestPath(id)))return err('Archive already completed',409,origin);
+      const data=await request.json().catch(()=>null);
+      if(data?.kind!=='chunked'||data.id!==id||!/^[0-9a-f]{64}$/.test(data.sha256||'')||!Array.isArray(data.parts)||data.parts.length<1||data.parts.length>MAX_PARTS||!Number.isSafeInteger(data.bytes)||data.bytes<49||data.bytes>MAX_TOTAL)return err('Invalid encrypted archive manifest',400,origin);
+      let total=0;
+      for(let i=0;i<data.parts.length;i++){
+        const p=data.parts[i];
+        if(!p||p.index!==i||!Number.isSafeInteger(p.bytes)||p.bytes<1||p.bytes>PART_LIMIT||!/^[0-9a-f]{64}$/.test(p.sha256||''))return err('Invalid fragment descriptor',400,origin);
+        const stored=await env.WARRANTY_STORE.head(partPath(id,i));
+        if(!stored||stored.size!==p.bytes||stored.customMetadata?.sha256!==p.sha256)return err('Encrypted archive fragment missing or corrupted',409,origin);
+        total+=p.bytes;
+      }
+      if(total!==data.bytes)return err('Encrypted archive length mismatch',400,origin);
+      const payload=JSON.stringify({kind:'chunked',id,sha256:data.sha256,bytes:data.bytes,parts:data.parts});
+      await env.WARRANTY_STORE.put(manifestPath(id),encoder.encode(payload),{httpMetadata:{contentType:'application/json'},customMetadata:{sha256:data.sha256,bytes:String(data.bytes),schema:'3'}});
+      return json({ok:true,id,format:'chunked',bytes:data.bytes,sha256:data.sha256},201,origin);
     }
     const match=url.pathname.match(/^\/v1\/backups\/([A-Za-z0-9-]{5,80})$/);
     if(!match)return err('Not found',404,origin);
@@ -118,7 +174,7 @@ export default {
       if((request.headers.get('Content-Type')||'').split(';')[0]!=='application/octet-stream')return err('Encrypted binary required',415,origin);
       const length=Number(request.headers.get('Content-Length'));
       if(Number.isFinite(length)&&length>LIMIT)return err('Encrypted archive too large',413,origin);
-      if(await env.WARRANTY_STORE.head(path))return err('Archive identifier already exists; snapshots are append-only',409,origin);
+      if(await env.WARRANTY_STORE.head(path)||await env.WARRANTY_STORE.head(manifestPath(id)))return err('Archive identifier already exists; snapshots are append-only',409,origin);
       const payload=await request.arrayBuffer();
       if(!payload.byteLength||payload.byteLength>LIMIT)return err('Encrypted archive exceeds 30 MB',413,origin);
       const magic=new TextDecoder().decode(new Uint8Array(payload).slice(0,8));
@@ -131,8 +187,10 @@ export default {
     }
     if(request.method==='GET'){
       const obj=await env.WARRANTY_STORE.get(path);
-      if(!obj)return err('Snapshot not found',404,origin);
-      return new Response(obj.body,{status:200,headers:{...cors(origin),'Content-Type':'application/octet-stream','X-Warranty-Digest':obj.customMetadata?.sha256||''}});
+      if(obj)return new Response(obj.body,{status:200,headers:{...cors(origin),'Content-Type':'application/octet-stream','X-Warranty-Digest':obj.customMetadata?.sha256||''}});
+      const manifest=await env.WARRANTY_STORE.get(manifestPath(id));
+      if(!manifest)return err('Snapshot not found',404,origin);
+      return new Response(manifest.body,{status:200,headers:{...cors(origin),'Content-Type':'application/json; charset=utf-8','X-Warranty-Format':'chunked','X-Warranty-Digest':manifest.customMetadata?.sha256||''}});
     }
     return err('Method not allowed',405,origin);
   }
