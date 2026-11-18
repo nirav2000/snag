@@ -24,7 +24,7 @@ jobs:
       - name: Validate worker source and Cloudflare configuration
         run: |
           node --check warranty-ease-worker.js
-          node -e 'const fs=require("fs");const x=JSON.parse(fs.readFileSync("wrangler-warranty-ease.jsonc","utf8"));if(x.name!=="warranty-ease-api"||x.r2_buckets?.[0]?.bucket_name!=="warranty-ease-private")throw Error("Worker config invalid")'
+          node -e 'const fs=require("fs");const x=JSON.parse(fs.readFileSync("wrangler-warranty-ease.jsonc","utf8"));if(x.name!=="warranty-ease-api"||x.r2_buckets?.[0]?.bucket_name!=="warranty-ease-private"||!x.services?.some(y=>y.binding==="APP_MONITOR_AUTH"&&y.service==="apps-monitor-api"))throw Error("Worker config missing isolated storage or internal App Monitor auth service binding")'
       - name: Run owner-authentication and encrypted backup tests
         run: node --test warranty-ease-worker.test.mjs
       - name: Ensure existing Cloudflare credentials
