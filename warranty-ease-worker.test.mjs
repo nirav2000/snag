@@ -25,3 +25,26 @@ r=await req('/backups/test-archive','GET',valid);assert.equal(r.status,200);asse
 r=await req('/backups/test-archive','PUT',valid,{'Content-Type':'application/octet-stream','X-Warranty-Digest':hash},payload);assert.equal(r.status,409);
 assert.equal((await req('/backups','GET',await jwt('some-other-user'))).status,401);
 console.log('Worker tests passed: owner JWT, encrypted PUT/GET/list, CORS, duplicate protection and unauthorised access denial');
+const appSession='S'.repeat(48);
+const recoverySession='R'.repeat(48);
+const badSession='B'.repeat(48);
+const originalFetch=globalThis.fetch;
+globalThis.fetch=async(input,options={})=>{
+ if(String(input).includes('/app-monitor/auth/session')){
+   const session=options.headers['X-App-Monitor-Session'];
+   const method=session===appSession?'passkey':'recovery';
+   if(session===badSession)return new Response('Unauthorized',{status:401});
+   return Response.json({ok:true,method,expiresAt:new Date(Date.now()+300000).toISOString()});
+ }
+ return originalFetch(input,options);
+};
+assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':appSession})).status,200,'verified owner passkey may read encrypted backup list');
+assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':recoverySession})).status,401,'recovery-only session must fail');
+assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':badSession})).status,401,'unknown session must fail closed');
+assert.equal((await req('/backups/test-archive','GET','',{'X-App-Monitor-Session':appSession})).status,200);
+let verified=await req('/backups/test-passkey','PUT','',{'X-App-Monitor-Session':appSession,'Content-Type':'application/octet-stream','X-Warranty-Digest':hash},payload);
+assert.equal(verified.status,201,'passkey may upload only encrypted archive bytes');
+assert.equal((await req('/backups/test-not-encrypted','PUT','',{'X-App-Monitor-Session':appSession,'Content-Type':'application/octet-stream','X-Warranty-Digest':hash},new TextEncoder().encode('private photo plaintext'))).status,400);
+globalThis.fetch=async(input,options={})=>String(input).includes('/app-monitor/auth/session')?new Response('service down',{status:503}):originalFetch(input,options);
+assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':appSession})).status,401,'passkey upstream outage must not grant access');
+console.log('Passkey bridge tests passed: verified session, expired/recovery denied, encrypted upload, upstream fail-closed');

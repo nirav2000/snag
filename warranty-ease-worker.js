@@ -1,15 +1,18 @@
 /* Warranty Ease — Cloudflare R2 encrypted snapshot service.
    Never receives plaintext records, credentials, photos or archive passphrases.
-   Firebase kk-syllabus owner ID tokens are verified against Google's public JWKs.
+   Firebase kk-syllabus ID tokens are verified against Google's JWKs.
+   Existing App Monitor passkey sessions are verified by the dedicated App Monitor Worker;
+   this Worker never deploys, modifies or stores the shared passkey service.
    No delete endpoint; backups are append-only. */
 const ALLOWED_ORIGIN='https://nirav2000.github.io';
 const OWNER='2AJSfYdtg5URWHv7HCzpNMmKIlg2';
 const PROJECT='kk-syllabus';
 const JWK_ENDPOINT='https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+const PASSKEY_SESSION_URL='https://apps-monitor-api.nirav2000-github.workers.dev/app-monitor/auth/session';
 const LIMIT=30*1024*1024;
 const encoder=new TextEncoder();
 let jwks=null,jwksExpiry=0;
-function cors(origin){return {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin',...(origin===ALLOWED_ORIGIN?{'Access-Control-Allow-Origin':ALLOWED_ORIGIN,'Access-Control-Allow-Methods':'GET,PUT,OPTIONS','Access-Control-Allow-Headers':'Authorization,Content-Type,X-Warranty-Digest','Access-Control-Max-Age':'1200'}:{})};}
+function cors(origin){return {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin',...(origin===ALLOWED_ORIGIN?{'Access-Control-Allow-Origin':ALLOWED_ORIGIN,'Access-Control-Allow-Methods':'GET,PUT,OPTIONS','Access-Control-Allow-Headers':'Authorization,X-App-Monitor-Session,Content-Type,X-Warranty-Digest','Access-Control-Max-Age':'1200'}:{})};}
 function json(value,status=200,origin=''){return new Response(JSON.stringify(value),{status,headers:cors(origin)});}
 function decodeUrlBase64(value){const b64=value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=');return Uint8Array.from(atob(b64),c=>c.charCodeAt(0));}
 async function verifyFirebase(token){
@@ -34,6 +37,19 @@ async function verifyFirebase(token){
   if(!valid)throw new Error('signature');
   return payload.sub;
 }
+async function verifyPasskeySession(session){
+  // Session tokens are opaque capabilities, not Firebase IDs; only App Monitor
+  // may confirm they were issued following a hardware/user-verified WebAuthn login.
+  if(!/^[A-Za-z0-9._-]{32,160}$/.test(session||''))throw Error('invalid-passkey-session');
+  const response=await fetch(PASSKEY_SESSION_URL,{method:'GET',
+    headers:{'X-App-Monitor-Session':session,'Origin':ALLOWED_ORIGIN,'Accept':'application/json'},
+    cache:'no-store',redirect:'error'});
+  if(!response.ok)throw Error('passkey-session-unverified');
+  const body=await response.json();
+  if(body?.ok!==true||body?.method!=='passkey'||
+     !body?.expiresAt||Date.parse(body.expiresAt)<=Date.now())throw Error('passkey-not-authorised');
+  return OWNER;
+}
 const archiveIdValid=id=>/^[A-Za-z0-9-]{5,80}$/.test(id||'');
 function objectPath(id){return `warranty-ease/v1/${OWNER}/archives/${id}.encrypted`;}
 function err(message,status,origin){return json({error:message},status,origin);}
@@ -46,13 +62,28 @@ export default {
     if(url.pathname==='/v1/health'&&request.method==='GET')return json({ok:true,service:'warranty-ease-api',schema:1},200,origin);
     if(!url.pathname.startsWith('/v1/backups'))return err('Not found',404,origin);
     const raw=request.headers.get('Authorization')||'';
-    if(!raw.startsWith('Bearer '))return err('Sign-in required',401,origin);
-    try{await verifyFirebase(raw.slice(7));}catch(_){return err('Invalid or expired Firebase sign-in',401,origin);}
+    const session=request.headers.get('X-App-Monitor-Session')||'';
+    if(!raw.startsWith('Bearer ')&&!session)return err('Sign-in required',401,origin);
+    try{
+      if(raw.startsWith('Bearer '))await verifyFirebase(raw.slice(7));
+      else await verifyPasskeySession(session);
+    }catch(_){return err('Invalid or expired owner sign-in',401,origin);}
     if(!env.WARRANTY_STORE)return err('Private storage not configured',503,origin);
     if(url.pathname==='/v1/backups'&&request.method==='GET'){
       const prefix=`warranty-ease/v1/${OWNER}/archives/`;
-      const data=await env.WARRANTY_STORE.list({prefix,limit:100});
-      return json({backups:data.objects.map(x=>({id:x.key.slice(prefix.length).replace(/\.encrypted$/,''),created:x.uploaded?.toISOString?.()||'',size:x.size||0,sha256:x.customMetadata?.sha256||''})).filter(x=>archiveIdValid(x.id)).sort((a,b)=>b.created.localeCompare(a.created)),truncated:data.truncated||false},200,origin);
+      // R2 lists lexicographically by UUID, not time. Scanning one 100-item
+      // page may hide the newest backup once an owner has accumulated >100.
+      const objects=[];let cursor,truncated=false;
+      for(let page=0;page<10;page++){
+        const data=await env.WARRANTY_STORE.list({prefix,limit:1000,...(cursor?{cursor}:{})});
+        objects.push(...data.objects);
+        truncated=!!data.truncated;
+        if(!truncated)break;
+        if(!data.cursor)throw Error('R2 did not return a continuation cursor');
+        cursor=data.cursor;
+      }
+      const backups=objects.map(x=>({id:x.key.slice(prefix.length).replace(/\.encrypted$/,''),created:x.uploaded?.toISOString?.()||'',size:x.size||0,sha256:x.customMetadata?.sha256||''})).filter(x=>archiveIdValid(x.id)).sort((a,b)=>b.created.localeCompare(a.created));
+      return json({backups:backups.slice(0,100),truncated,backupsCount:objects.length},200,origin);
     }
     const match=url.pathname.match(/^\/v1\/backups\/([A-Za-z0-9-]{5,80})$/);
     if(!match)return err('Not found',404,origin);
