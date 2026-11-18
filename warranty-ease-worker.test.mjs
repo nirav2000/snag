@@ -39,6 +39,7 @@ const expectedAuth='https://apps-monitor-api.nirav2000-github.workers.dev/app-mo
 let boundCalls=0;
 env.APP_MONITOR_AUTH={fetch:async input=>{
  boundCalls++;
+ assert.equal(input.redirect,'manual','Cloudflare Worker Service Bindings reject redirect:error; never forward credentials to a redirect');
  if(new URL(input.url).pathname==='/health')
    return Response.json({ok:true,service:'apps-monitor-api',r2Bound:true});
  assert.equal(new URL(input.url).toString(),expectedAuth,'Service Binding targets the shared session validation endpoint');
