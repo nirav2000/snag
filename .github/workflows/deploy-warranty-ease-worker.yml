@@ -58,7 +58,18 @@ jobs:
         run: |
           set -euo pipefail
           ROOT='https://warranty-ease-api.nirav2000-github.workers.dev'
-          curl --fail-with-body --silent --show-error --retry 8 --retry-delay 2 "$ROOT/v1/health" | grep -q '"ok":true'
+          # Newly deployed workers.dev routes can take time to become visible at the edge.
+          for attempt in $(seq 1 15); do
+            status=$(curl --silent --show-error -o /tmp/warranty-health.json -w '%{http_code}' "$ROOT/v1/health" || true)
+            if [[ "$status" == 200 ]] && grep -q '"ok":true' /tmp/warranty-health.json; then break; fi
+            echo "Worker health not yet ready (attempt $attempt/15, HTTP $status)"
+            if [[ "$attempt" == 15 ]]; then
+              echo "::error::Worker health never became ready"
+              head -c 250 /tmp/warranty-health.json || true
+              exit 1
+            fi
+            sleep 6
+          done
           code=$(curl --silent --show-error -o /tmp/warranty-unauth.json -w '%{http_code}' "$ROOT/v1/backups")
           test "$code" = 401 || { echo "::error::Unauthenticated backup access returned $code"; exit 1; }
           echo 'Worker deployed and unauthenticated access denied.'
