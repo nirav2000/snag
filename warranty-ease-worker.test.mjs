@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import {webcrypto} from 'node:crypto';
+
+const source=await import('./warranty-ease-worker.js');
+const worker=source.default;
+const owner='2AJSfYdtg5URWHv7HCzpNMmKIlg2';
+const kp=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
+const jwk=await crypto.subtle.exportKey('jwk',kp.publicKey);jwk.kid='test-key';jwk.use='sig';
+const prevFetch=globalThis.fetch;
+globalThis.fetch=async input=>String(input).includes('googleapis.com/service_accounts')?new Response(JSON.stringify({keys:[jwk]}),{status:200}):prevFetch(input);
+const b64=b=>Buffer.from(typeof b==='string'?b:JSON.stringify(b)).toString('base64url');
+async function jwt(user=owner){const now=Math.floor(Date.now()/1000);const h=b64({alg:'RS256',typ:'JWT',kid:'test-key'}),p=b64({aud:'kk-syllabus',iss:'https://securetoken.google.com/kk-syllabus',sub:user,user_id:user,iat:now,exp:now+3600});const unsigned=h+'.'+p;const sig=await crypto.subtle.sign('RSASSA-PKCS1-v1_5',kp.privateKey,new TextEncoder().encode(unsigned));return unsigned+'.'+Buffer.from(sig).toString('base64url');}
+const store=new Map();const env={WARRANTY_STORE:{head:async k=>store.get(k),put:async(k,data,meta)=>store.set(k,{body:data,size:data.byteLength,uploaded:new Date(),customMetadata:meta.customMetadata}),get:async k=>store.get(k),list:async({prefix})=>({objects:[...store].filter(([k])=>k.startsWith(prefix)).map(([key,v])=>({key,size:v.size,uploaded:v.uploaded,customMetadata:v.customMetadata})),truncated:false})}};
+const root='https://warranty-ease-api.nirav2000-github.workers.dev/v1';
+async function req(path,method='GET',token='',headers={},body){return worker.fetch(new Request(root+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),Origin:'https://nirav2000.github.io',...headers},body}),env);}
+assert.equal((await req('/health')).status,200);
+assert.equal((await req('/backups')).status,401);
+const valid=await jwt();
+let r=await req('/backups','GET',valid);assert.equal(r.status,200);assert.equal((await r.json()).backups.length,0);
+const payload=new Uint8Array(80);payload.set(new TextEncoder().encode('WEASE02!'));crypto.getRandomValues(payload.subarray(8));
+const hash=Buffer.from(await crypto.subtle.digest('SHA-256',payload)).toString('hex');
+r=await req('/backups/test-archive','PUT',valid,{'Content-Type':'application/octet-stream','X-Warranty-Digest':hash},payload);assert.equal(r.status,201,await r.text());
+r=await req('/backups','GET',valid);assert.equal((await r.json()).backups.length,1);
+r=await req('/backups/test-archive','GET',valid);assert.equal(r.status,200);assert.deepEqual(new Uint8Array(await r.arrayBuffer()),payload);
+r=await req('/backups/test-archive','PUT',valid,{'Content-Type':'application/octet-stream','X-Warranty-Digest':hash},payload);assert.equal(r.status,409);
+assert.equal((await req('/backups','GET',await jwt('some-other-user'))).status,401);
+console.log('Worker tests passed: owner JWT, encrypted PUT/GET/list, CORS, duplicate protection and unauthorised access denial');
