@@ -1,0 +1,35 @@
+name: Validate public manufacturer image sources
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/verify-warranty-photo-sources.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  photo-source-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check exact official model image URLs
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const urls={
+            washer:'https://www.lg.com/content/dam/channel/wcms/uk/images/washing-machines/f4y511wwla1/gallery/1100x730/1100-730_01_Vivace_R350_11kg_White_F4Y3EBP0W_UK_Front.jpg',
+            washerGallery:'https://www.lg.com/content/dam/channel/wcms/uk/d2c-content/hs/laundry/uk-wm05-washer-f4y511wwla1/gallery/450x450/lg-laundry-F4Y511WWLA1-add-1-450.jpg',
+            dryer:"https://www.lg.com/content/dam/channel/wcms/nl/1--huishoudelijke-producten-nieuw/stella%27s-stuff/dryers/rhx1009nwk/rhx1009nwk/rhx1009nwk-2010x1334_V2.jpg/jcr%3Acontent/renditions/thum-1600x1062.jpeg",
+            tv:'https://aws-obg-image-lb-1.tcl.com/content/dam/brandsite/region/hr/product/tv/c8l/tcl-65-c8l-hero-front-olympic.png?t=1781059223473&w=800'
+          };
+          for(const [name,url] of Object.entries(urls)){
+            try{
+              const response=await fetch(url,{redirect:'manual',headers:{Accept:'image/jpeg,image/png,image/webp','User-Agent':'Mozilla/5.0 (compatible; WarrantyEasePhotoImporter/1.0)'},signal:AbortSignal.timeout(12000)});
+              console.log(name,JSON.stringify({status:response.status,contentType:response.headers.get('content-type'),length:response.headers.get('content-length'),redirect:response.headers.get('location')?.slice(0,130)}));
+              if(response.ok){
+                const bytes=new Uint8Array(await response.arrayBuffer());
+                console.log('DATA',name,bytes.length,Buffer.from(bytes.slice(0,16)).toString('hex'));
+              }
+            }catch(e){console.log('FAILED',name,e.message)}
+          }
+          NODE
