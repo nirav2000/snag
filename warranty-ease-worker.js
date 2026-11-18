@@ -80,7 +80,7 @@ export default {
               const data=await response.json();
               authServiceReachable=data?.ok===true&&data?.service==='apps-monitor-api'&&data?.r2Bound===true;
             }
-          }catch(error){authServiceErrorType=String(error?.name||'FetchError').slice(0,48); /* no secrets or bodies logged */ }
+          }catch(error){authServiceErrorType=(String(error?.name||'FetchError')+': '+String(error?.message||'').replace(/[A-Za-z0-9._-]{40,}/g,'[redacted]')).slice(0,180); /* diagnostic contains no request headers or bodies */ }
         }
       }
       return json({ok:true,service:'warranty-ease-api',schema:1,passkeyBindingReady,
