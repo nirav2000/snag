@@ -4,6 +4,15 @@
   "compatibility_date": "2026-10-15",
   "workers_dev": true,
   "r2_buckets": [
-    { "binding": "WARRANTY_STORE", "bucket_name": "warranty-ease-private" }
+    {
+      "binding": "WARRANTY_STORE",
+      "bucket_name": "warranty-ease-private"
+    }
+  ],
+  "services": [
+    {
+      "binding": "APP_MONITOR_AUTH",
+      "service": "apps-monitor-api"
+    }
   ]
 }
