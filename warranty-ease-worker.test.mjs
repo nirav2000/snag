@@ -28,16 +28,25 @@ console.log('Worker tests passed: owner JWT, encrypted PUT/GET/list, CORS, dupli
 const appSession='S'.repeat(48);
 const recoverySession='R'.repeat(48);
 const badSession='B'.repeat(48);
-const originalFetch=globalThis.fetch;
+// Same-account Worker-to-Worker auth MUST use a Service Binding, never
+// a public workers.dev fetch; Cloudflare can reject same-zone subrequests.
+const fallbackFetch=globalThis.fetch;
 globalThis.fetch=async(input,options={})=>{
- if(String(input).includes('/app-monitor/auth/session')){
-   const session=options.headers['X-App-Monitor-Session'];
-   const method=session===appSession?'passkey':'recovery';
-   if(session===badSession)return new Response('Unauthorized',{status:401});
-   return Response.json({ok:true,method,expiresAt:new Date(Date.now()+300000).toISOString()});
- }
- return originalFetch(input,options);
+ if(String(input).includes('/app-monitor/auth/session'))throw Error('Unsafe public Worker-to-Worker auth fetch');
+ return fallbackFetch(input,options);
 };
+const expectedAuth='https://apps-monitor-api.nirav2000-github.workers.dev/app-monitor/auth/session';
+let boundCalls=0;
+env.APP_MONITOR_AUTH={fetch:async input=>{
+ boundCalls++;
+ assert.equal(new URL(input.url).toString(),expectedAuth,'Service Binding targets the shared session validation endpoint');
+ assert.equal(input.method,'GET');
+ assert.equal(input.headers.get('Origin'),'https://nirav2000.github.io');
+ const session=input.headers.get('X-App-Monitor-Session');
+ if(session===badSession)return new Response('Unauthorized',{status:401});
+ const method=session===appSession?'passkey':'recovery';
+ return Response.json({ok:true,method,expiresAt:new Date(Date.now()+300000).toISOString()});
+}};
 assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':appSession})).status,200,'verified owner passkey may read encrypted backup list');
 assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':recoverySession})).status,401,'recovery-only session must fail');
 assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':badSession})).status,401,'unknown session must fail closed');
@@ -45,6 +54,9 @@ assert.equal((await req('/backups/test-archive','GET','',{'X-App-Monitor-Session
 let verified=await req('/backups/test-passkey','PUT','',{'X-App-Monitor-Session':appSession,'Content-Type':'application/octet-stream','X-Warranty-Digest':hash},payload);
 assert.equal(verified.status,201,'passkey may upload only encrypted archive bytes');
 assert.equal((await req('/backups/test-not-encrypted','PUT','',{'X-App-Monitor-Session':appSession,'Content-Type':'application/octet-stream','X-Warranty-Digest':hash},new TextEncoder().encode('private photo plaintext'))).status,400);
-globalThis.fetch=async(input,options={})=>String(input).includes('/app-monitor/auth/session')?new Response('service down',{status:503}):originalFetch(input,options);
-assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':appSession})).status,401,'passkey upstream outage must not grant access');
-console.log('Passkey bridge tests passed: verified session, expired/recovery denied, encrypted upload, upstream fail-closed');
+assert.ok(boundCalls>=6,'All passkey requests should cross the internal service binding');
+env.APP_MONITOR_AUTH={fetch:async()=>new Response('service down',{status:503})};
+assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':appSession})).status,401,'shared passkey outage must fail closed');
+delete env.APP_MONITOR_AUTH;
+assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':appSession})).status,401,'missing Service Binding must fail closed');
+console.log('Internal passkey Service Binding tests passed: owner session, recovery/invalid denied, encrypted upload, upstream/missing binding fail-closed');
