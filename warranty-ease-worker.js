@@ -62,7 +62,29 @@ export default {
     if(origin&&origin!==ALLOWED_ORIGIN)return err('Origin not permitted',403,origin);
     if(request.method==='OPTIONS')return new Response(null,{status:204,headers:cors(origin)});
     const url=new URL(request.url);
-    if(url.pathname==='/v1/health'&&request.method==='GET')return json({ok:true,service:'warranty-ease-api',schema:1},200,origin);
+    if(url.pathname==='/v1/health'&&request.method==='GET'){
+      const passkeyBindingReady=typeof env.APP_MONITOR_AUTH?.fetch==='function';
+      let authServiceReachable;
+      // Prove the internal Worker-to-Worker binding without accepting a session
+      // or accessing any warranty data; only on an explicit diagnostic request.
+      if(url.searchParams.get('checkAuth')==='1'){
+        authServiceReachable=false;
+        if(passkeyBindingReady){
+          try{
+            const response=await env.APP_MONITOR_AUTH.fetch(new Request(
+              'https://apps-monitor-api.nirav2000-github.workers.dev/health',
+              {method:'GET',cache:'no-store',redirect:'error'}
+            ));
+            if(response.ok){
+              const data=await response.json();
+              authServiceReachable=data?.ok===true&&data?.service==='apps-monitor-api'&&data?.r2Bound===true;
+            }
+          }catch(_){ /* diagnostic only: regular local access is unaffected */ }
+        }
+      }
+      return json({ok:true,service:'warranty-ease-api',schema:1,passkeyBindingReady,
+        ...(authServiceReachable===undefined?{}:{authServiceReachable})},200,origin);
+    }
     if(!url.pathname.startsWith('/v1/backups'))return err('Not found',404,origin);
     const raw=request.headers.get('Authorization')||'';
     const session=request.headers.get('X-App-Monitor-Session')||'';
