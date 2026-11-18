@@ -1,132 +1,21 @@
-name: Deploy dedicated App Monitor worker
-
+# RETIRED / FROZEN: One-time migration/redeploy pipeline
+# apps-monitor-api is a critical shared authentication service.
+# Deployment, R2 bindings and passkey verification are owned by nirav2000/Apps.
+# This cross-repository workflow previously bypassed the auth preview gate,
+# and could overwrite the working Worker and its required bindings.
+# Do not restore scheduling, deploy, or "wrangler secret put" from Snag.
+name: Retired App Monitor - deploy-app-monitor-worker
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/deploy-app-monitor-worker.yml"
-
 permissions:
   contents: read
-
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
+  disabled:
+    runs-on: ubuntu-24.04
     steps:
-      - name: Check out Apps platform
-        uses: actions/checkout@v4
-        with:
-          repository: nirav2000/Apps
-          path: apps-monitor
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: apps-monitor/package.json
-
-      - name: Install worker dependencies
-        working-directory: apps-monitor
-        run: npm install --no-audit --no-fund
-
-      - name: Validate Cloudflare credentials
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Explain the safety lock
         run: |
-          test -n "$CLOUDFLARE_API_TOKEN"
-          test -n "$CLOUDFLARE_ACCOUNT_ID"
-
-      - name: Ensure dedicated R2 bucket exists
-        working-directory: apps-monitor
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          npx wrangler r2 bucket create apps-monitor-data || npx wrangler r2 bucket info apps-monitor-data
-
-      - name: Deploy dedicated App Monitor worker
-        working-directory: apps-monitor
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy -c wrangler-app-monitor.jsonc
-
-      - name: Configure one-time migration authorization
-        working-directory: apps-monitor
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          MIGRATION_TOKEN="$(openssl rand -hex 32)"
-          printf '%s' "$MIGRATION_TOKEN" > /tmp/app-monitor-migration-token
-          printf '%s' "$MIGRATION_TOKEN" | npx wrangler secret put MIGRATION_TOKEN -c wrangler-app-monitor.jsonc
-
-      - name: Wait for dedicated Worker propagation
-        env:
-          APP_MONITOR_URL: https://apps-monitor-api.nirav2000-github.workers.dev
-        run: |
-          for i in $(seq 1 12); do
-            if curl --fail --silent --show-error "$APP_MONITOR_URL/health" >/tmp/app-monitor-health; then
-              cat /tmp/app-monitor-health
-              echo
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "::error::Dedicated App Monitor Worker did not become reachable"
+          echo "::error::This legacy Snag-to-AppMonitor deployment is disabled to prevent passkey outages."
+          echo "Use nirav2000/Apps .github/workflows/deploy-app-monitor-worker.yml for staged deployment."
+          echo "For notifications provider updates, add a reviewed, version-preserving secret change in the Apps release pipeline; never change apps-monitor-api from Snag."
           exit 1
-
-      - name: Copy App Monitor data from Snag R2
-        env:
-          APP_MONITOR_URL: https://apps-monitor-api.nirav2000-github.workers.dev
-        run: |
-          MIGRATION_TOKEN="$(cat /tmp/app-monitor-migration-token)"
-          curl --fail-with-body --silent --show-error \
-            --retry 5 --retry-delay 3 --retry-all-errors \
-            -X POST \
-            -H "X-Migration-Token: $MIGRATION_TOKEN" \
-            "$APP_MONITOR_URL/migration/copy"
-          echo
-          curl --fail-with-body --silent --show-error \
-            --retry 5 --retry-delay 3 --retry-all-errors \
-            -H "X-Migration-Token: $MIGRATION_TOKEN" \
-            "$APP_MONITOR_URL/migration/status"
-          echo
-
-      - name: Smoke-test dedicated service
-        env:
-          APP_MONITOR_URL: https://apps-monitor-api.nirav2000-github.workers.dev
-        run: |
-          curl --fail --silent --show-error "$APP_MONITOR_URL/health"
-          echo
-          curl --fail --silent --show-error -H 'Origin: https://nirav2000.github.io' "$APP_MONITOR_URL/app-monitor/security/status"
-          echo
-
-      - name: Verify migration is complete
-        env:
-          APP_MONITOR_URL: https://apps-monitor-api.nirav2000-github.workers.dev
-        run: |
-          MIGRATION_TOKEN="$(cat /tmp/app-monitor-migration-token)"
-          STATUS="$(curl --fail-with-body --silent --show-error -H "X-Migration-Token: $MIGRATION_TOKEN" "$APP_MONITOR_URL/migration/status")"
-          echo "$STATUS"
-          node -e 'const x=JSON.parse(process.argv[1]); if(!x.ok || x.dedicated < x.legacy || x.passkeyCount < 1 || !x.recoveryConfigured) process.exit(1)' "$STATUS"
-
-      - name: Remove migrated App Monitor objects from Snag R2
-        working-directory: apps-monitor
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          APP_MONITOR_URL: https://apps-monitor-api.nirav2000-github.workers.dev
-        run: |
-          MIGRATION_TOKEN="$(cat /tmp/app-monitor-migration-token)"
-          curl --fail-with-body --silent --show-error -H "X-Migration-Token: $MIGRATION_TOKEN" "$APP_MONITOR_URL/migration/keys" > /tmp/app-monitor-keys.json
-          node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync("/tmp/app-monitor-keys.json","utf8")); for(const k of x.keys||[]) console.log(k)' > /tmp/app-monitor-keys.txt
-          while IFS= read -r key; do
-            [ -z "$key" ] && continue
-            npx wrangler r2 object delete "snag-media/$key" --remote
-          done < /tmp/app-monitor-keys.txt
-          STATUS="$(curl --fail-with-body --silent --show-error -H "X-Migration-Token: $MIGRATION_TOKEN" "$APP_MONITOR_URL/migration/status")"
-          echo "$STATUS"
-          node -e 'const x=JSON.parse(process.argv[1]); if(x.legacy !== 0 || x.passkeyCount < 1 || !x.recoveryConfigured) process.exit(1)' "$STATUS"
