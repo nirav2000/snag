@@ -10,9 +10,23 @@ const prevFetch=globalThis.fetch;
 globalThis.fetch=async input=>String(input).includes('googleapis.com/service_accounts')?new Response(JSON.stringify({keys:[jwk]}),{status:200}):prevFetch(input);
 const b64=b=>Buffer.from(typeof b==='string'?b:JSON.stringify(b)).toString('base64url');
 async function jwt(user=owner){const now=Math.floor(Date.now()/1000);const h=b64({alg:'RS256',typ:'JWT',kid:'test-key'}),p=b64({aud:'kk-syllabus',iss:'https://securetoken.google.com/kk-syllabus',sub:user,user_id:user,iat:now,exp:now+3600});const unsigned=h+'.'+p;const sig=await crypto.subtle.sign('RSASSA-PKCS1-v1_5',kp.privateKey,new TextEncoder().encode(unsigned));return unsigned+'.'+Buffer.from(sig).toString('base64url');}
-const store=new Map();const env={WARRANTY_STORE:{head:async k=>store.get(k),put:async(k,data,meta)=>store.set(k,{body:data,size:data.byteLength,uploaded:new Date(),customMetadata:meta.customMetadata}),get:async k=>store.get(k),list:async({prefix})=>({objects:[...store].filter(([k])=>k.startsWith(prefix)).map(([key,v])=>({key,size:v.size,uploaded:v.uploaded,customMetadata:v.customMetadata})),truncated:false})}};
-const root='https://warranty-ease-api.nirav2000-github.workers.dev/v1';
-async function req(path,method='GET',token='',headers={},body){return worker.fetch(new Request(root+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),Origin:'https://nirav2000.github.io',...headers},body}),env);}
+const store=new Map();
+const env={WARRANTY_STORE:{
+ head:async key=>store.get(key),
+ async put(key,data,{onlyIf,customMetadata}={}){
+  const body=typeof data==='string'?new TextEncoder().encode(data):data;
+  const etag=Buffer.from(await crypto.subtle.digest('SHA-256',body)).toString('hex');
+  if(onlyIf?.etagDoesNotMatch==='*'&&store.has(key)||onlyIf?.etagMatches&&store.get(key)?.etag!==onlyIf.etagMatches)return null;
+  const value={body,size:body.byteLength,uploaded:new Date(),customMetadata,etag,httpEtag:'"'+etag+'"'};
+  store.set(key,value);
+  return value;
+ },
+ get:async key=>store.get(key),
+ list:async({prefix})=>({objects:[...store].filter(([key])=>key.startsWith(prefix)).map(([key,value])=>({...value,key})),truncated:false})
+}};
+const root='https://warranty-ease-api.nirav2000-github.workers.dev';
+async function request(path,method='GET',token='',headers={},body){return worker.fetch(new Request(root+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),Origin:'https://nirav2000.github.io',...headers},body}),env);}
+const req=(path,...args)=>request('/v1'+path,...args);
 assert.equal((await req('/health')).status,200);
 assert.equal((await req('/backups')).status,401);
 const valid=await jwt();
@@ -85,6 +99,7 @@ assert.equal((await req('/product-photos/lg-f4y511wwla1','POST','',{'X-App-Monit
 globalThis.fetch=originalPhotoFetch;
 console.log('Manufacturer image importer: three approved IDs only, passkey gate, no arbitrary URL proxy');
 
+const authBinding=env.APP_MONITOR_AUTH;
 env.APP_MONITOR_AUTH={fetch:async()=>new Response('service down',{status:503})};
 assert.equal((await req('/backups','GET','',{'X-App-Monitor-Session':appSession})).status,401,'shared passkey outage must fail closed');
 delete env.APP_MONITOR_AUTH;
@@ -116,3 +131,35 @@ assert.equal((await req(`/backups/${multiId}/parts/0`,'PUT',valid,{'Content-Type
 assert.equal((await req(`/backups/${multiId}/complete`,'POST',valid,{'Content-Type':'application/json'},JSON.stringify(multiManifest))).status,409);
 assert.equal((await req(`/backups/evil-bad/parts/0`,'PUT',valid,{'Content-Type':'application/octet-stream','X-Warranty-Digest':await partHash(new Uint8Array(65))},new Uint8Array(65))).status,400);
 console.log('Multipart R2 archive tests passed: fragments invisible until complete, immutable manifest, checksum and encrypted-magic enforcement');
+
+env.APP_MONITOR_AUTH=authBinding;
+const ownerHeaders={'X-App-Monitor-Session':appSession};
+const v2=(path,method='GET',headers={},body)=>request('/v2'+path,method,'',{...ownerHeaders,...headers},body);
+assert.equal((await request('/v2/records')).status,401);
+assert.equal((await v2('/records')).status,200);
+const file='/files/'+hash,record='/records/a-appliance';
+const newRecord={id:'a-appliance',version:2,kind:'appliance',deleted:false,value:{id:'appliance',files:[{id:'receipt',originalHash:hash}]}};
+const create={'Content-Type':'application/json','If-None-Match':'*'};
+assert.equal((await v2(record,'PUT',create,JSON.stringify(newRecord))).status,409);
+assert.equal((await v2(file,'PUT',{},new Uint8Array([1,2,3]))).status,400);
+assert.equal((await v2(file,'PUT',{},payload)).status,200);
+assert.equal((await v2(file,'HEAD')).status,200);
+assert.equal((await v2(record,'PUT',{},JSON.stringify(newRecord))).status,428);
+const first=await v2(record,'PUT',create,JSON.stringify(newRecord));
+assert.equal(first.status,200,await first.clone().text());
+const tag=(await first.json()).etag;
+assert.equal((await v2(record,'PUT',create,JSON.stringify(newRecord))).status,412);
+const update={'Content-Type':'application/json','If-Match':'"'+tag+'"'};
+const tombstone={...newRecord,deleted:true,deletedAt:new Date().toISOString(),value:null};
+assert.equal((await v2(record,'PUT',update,JSON.stringify(tombstone))).status,200);
+assert.equal((await v2(record,'PUT',update,JSON.stringify(newRecord))).status,412);
+assert.equal((await (await v2(record)).json()).deleted,true);
+assert.deepEqual(new Uint8Array(await (await v2(file)).arrayBuffer()),payload);
+assert.equal((await v2('/migration','PUT',{'X-Warranty-Legacy-Head':'wrong-id'})).status,409);
+const latest=(await (await req('/backups','GET',valid)).json()).backups[0].id;
+const migration=await v2('/migration','PUT',{'X-Warranty-Legacy-Head':latest});
+assert.equal(migration.status,200);
+assert.equal((await migration.json()).completed.legacyHead,latest);
+assert.equal((await req('/backups/old-client-write','PUT',valid,{'Content-Type':'application/octet-stream','X-Warranty-Digest':hash},payload)).status,409);
+assert.deepEqual(new Uint8Array(await (await req('/backups/test-archive','GET',valid)).arrayBuffer()),payload);
+console.log('Incremental R2 tests passed: authenticated revisions, immutable evidence, deletion and legacy migration fence');

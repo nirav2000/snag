@@ -1,4 +1,4 @@
-name: Deploy Warranty Ease encrypted backup API
+name: Deploy Warranty Ease private R2 API
 on:
   push:
     branches: [main]
@@ -25,7 +25,7 @@ jobs:
         run: |
           node --check warranty-ease-worker.js
           node -e 'const fs=require("fs");const x=JSON.parse(fs.readFileSync("wrangler-warranty-ease.jsonc","utf8"));if(x.name!=="warranty-ease-api"||x.r2_buckets?.[0]?.bucket_name!=="warranty-ease-private"||!x.services?.some(y=>y.binding==="APP_MONITOR_AUTH"&&y.service==="apps-monitor-api"))throw Error("Worker config missing isolated storage or internal App Monitor auth service binding")'
-      - name: Run owner-authentication and encrypted backup tests
+      - name: Test owner authentication, incremental records and legacy archives
         run: node --test warranty-ease-worker.test.mjs
       - name: Ensure existing Cloudflare credentials
         env:
@@ -36,18 +36,6 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo '::error::Missing CLOUDFLARE_ACCOUNT_ID'; exit 1; }
       - name: Install Wrangler
         run: npm install --no-audit --no-fund
-      - name: Create private R2 bucket if absent
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if npx wrangler r2 bucket list 2>&1 | grep -q 'warranty-ease-private'; then
-            echo 'Existing Warranty Ease R2 bucket found'
-          else
-            npx wrangler r2 bucket create warranty-ease-private
-          fi
       - name: Deploy isolated Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -61,7 +49,7 @@ jobs:
           # Newly deployed workers.dev routes can take time to become visible at the edge.
           for attempt in $(seq 1 15); do
             status=$(curl --silent --show-error -o /tmp/warranty-health.json -w '%{http_code}' "$ROOT/v1/health" || true)
-            if [[ "$status" == 200 ]] && grep -q '"ok":true' /tmp/warranty-health.json; then break; fi
+            if [[ "$status" == 200 ]] && grep -q '"incrementalSync":true' /tmp/warranty-health.json; then break; fi
             echo "Worker health not yet ready (attempt $attempt/15, HTTP $status)"
             if [[ "$attempt" == 15 ]]; then
               echo "::error::Worker health never became ready"
@@ -70,6 +58,8 @@ jobs:
             fi
             sleep 6
           done
-          code=$(curl --silent --show-error -o /tmp/warranty-unauth.json -w '%{http_code}' "$ROOT/v1/backups")
-          test "$code" = 401 || { echo "::error::Unauthenticated backup access returned $code"; exit 1; }
+          for resource in /v1/backups /v2/migration /v2/records; do
+            code=$(curl --silent --show-error -o /tmp/warranty-unauth.json -w '%{http_code}' "$ROOT$resource")
+            test "$code" = 401 || { echo "::error::Unauthenticated $resource access returned $code"; exit 1; }
+          done
           echo 'Worker deployed and unauthenticated access denied.'

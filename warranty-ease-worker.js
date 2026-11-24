@@ -7,13 +7,15 @@
 const ALLOWED_ORIGIN='https://nirav2000.github.io';
 const OWNER='2AJSfYdtg5URWHv7HCzpNMmKIlg2';
 const PROJECT='kk-syllabus';
+const SYNC_PREFIX=`warranty-ease/v2/${OWNER}/`;
+const MIGRATION_KEY=SYNC_PREFIX+'migration.json';
 const JWK_ENDPOINT='https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const PASSKEY_SESSION_URL='https://apps-monitor-api.nirav2000-github.workers.dev/app-monitor/auth/session';
 const LIMIT=30*1024*1024;
 const PART_LIMIT=12*1024*1024, MAX_PARTS=12, MAX_TOTAL=PART_LIMIT*MAX_PARTS;
 const encoder=new TextEncoder();
 let jwks=null,jwksExpiry=0;
-function cors(origin){return {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin',...(origin===ALLOWED_ORIGIN?{'Access-Control-Allow-Origin':ALLOWED_ORIGIN,'Access-Control-Allow-Methods':'GET,HEAD,PUT,POST,OPTIONS','Access-Control-Allow-Headers':'Authorization,X-App-Monitor-Session,Content-Type,X-Warranty-Digest,If-Match,If-None-Match','Access-Control-Expose-Headers':'X-Warranty-Digest,X-Warranty-Format,ETag','Access-Control-Max-Age':'1200'}:{})};}
+function cors(origin){return {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin',...(origin===ALLOWED_ORIGIN?{'Access-Control-Allow-Origin':ALLOWED_ORIGIN,'Access-Control-Allow-Methods':'GET,HEAD,PUT,POST,OPTIONS','Access-Control-Allow-Headers':'Authorization,X-App-Monitor-Session,Content-Type,X-Warranty-Digest,X-Warranty-Legacy-Head,If-Match,If-None-Match','Access-Control-Expose-Headers':'X-Warranty-Digest,X-Warranty-Format,ETag','Access-Control-Max-Age':'1200'}:{})};}
 function json(value,status=200,origin=''){return new Response(JSON.stringify(value),{status,headers:cors(origin)});}
 function decodeUrlBase64(value){const b64=value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=');return Uint8Array.from(atob(b64),c=>c.charCodeAt(0));}
 async function verifyFirebase(token){
@@ -91,14 +93,49 @@ function partPath(id,index){return `warranty-ease/v1/${OWNER}/parts/${id}/${Stri
 function sha256Hex(bytes){return crypto.subtle.digest('SHA-256',bytes).then(h=>Array.from(new Uint8Array(h),b=>b.toString(16).padStart(2,'0')).join(''));}
 function err(message,status,origin){return json({error:message},status,origin);}
 
+// R2 listing and object reads are strongly consistent. A migration marker is
+// written only after the client has reconciled all initial records.
+async function legacyBackups(store){
+ const prefix=`warranty-ease/v1/${OWNER}/archives/`;
+ const backups=[];let cursor;
+ do{
+  const page=await store.list({prefix,cursor,limit:1000,include:['customMetadata']});
+  for(const x of page.objects){
+   const file=x.key.slice(prefix.length),chunked=file.endsWith('.manifest.json');
+   if(!chunked&&!file.endsWith('.encrypted'))continue;
+   const id=file.slice(0,-(chunked?'.manifest.json'.length:'.encrypted'.length));
+   if(!archiveIdValid(id))continue;
+   backups.push({id,created:x.uploaded?.toISOString?.()||'',size:chunked?Number(x.customMetadata?.bytes)||0:x.size||0,sha256:x.customMetadata?.sha256||'',format:chunked?'chunked':'single'});
+  }
+  if(page.truncated&&(!page.cursor||page.cursor===cursor))throw Error('Incomplete legacy archive listing');
+  cursor=page.truncated?page.cursor:undefined;
+ }while(cursor);
+ return backups.sort((a,b)=>b.created.localeCompare(a.created)||b.id.localeCompare(a.id));
+}
+
 async function incremental(request,env,url,origin){
- const store=env.WARRANTY_STORE,prefix='warranty-ease/v2/'+OWNER+'/';
+ const store=env.WARRANTY_STORE,prefix=SYNC_PREFIX;
+ if(url.pathname==='/v2/migration'){
+  const saved=await store.get(MIGRATION_KEY);
+  const completed=saved?JSON.parse(await new Response(saved.body).text()):null;
+  if(request.method==='GET')return json({completed},200,origin);
+  if(request.method!=='PUT')return err('Method not allowed',405,origin);
+  if(completed)return json({completed},200,origin);
+  const legacyHead=request.headers.get('X-Warranty-Legacy-Head');
+  if(legacyHead===null||legacyHead&&!archiveIdValid(legacyHead))return err('Invalid legacy archive reference',400,origin);
+  const backups=await legacyBackups(store);
+  if((backups[0]?.id||'')!==legacyHead)return err('Legacy archive changed during migration',409,origin);
+  const migration={legacyHead,completedAt:new Date().toISOString()};
+  const result=await store.put(MIGRATION_KEY,JSON.stringify(migration),{onlyIf:{etagDoesNotMatch:'*'}});
+  if(!result)return err('Migration already completed concurrently',409,origin);
+  return json({completed:migration},200,origin);
+ }
  const validRecordId=id=>/^(?:[al]-[a-zA-Z0-9_-]{1,100}|vault)$/.test(id);
  const digestValid=id=>/^[a-f0-9]{64}$/.test(id);
  const m=url.pathname.match(/^\/v2\/(records|files)\/([a-zA-Z0-9_-]{1,110})$/);
  if(url.pathname==='/v2/records'&&request.method==='GET'){
   const objects=[];let cursor;
-  do{const page=await store.list({prefix:prefix+'records/',cursor,limit:1000});objects.push(...page.objects.map(o=>({id:o.key.split('/').pop(),etag:o.etag})));if(page.truncated&&!page.cursor)throw Error('Incomplete record listing');cursor=page.truncated?page.cursor:undefined;}while(cursor);
+  do{const page=await store.list({prefix:prefix+'records/',cursor,limit:1000});objects.push(...page.objects.map(o=>({id:o.key.split('/').pop(),etag:o.etag})));if(page.truncated&&(!page.cursor||page.cursor===cursor))throw Error('Incomplete record listing');cursor=page.truncated?page.cursor:undefined;}while(cursor);
   return json({records:objects},200,origin);
  }
  if(!m)return err('Not found',404,origin);
@@ -114,11 +151,13 @@ async function incremental(request,env,url,origin){
  if(request.method!=='PUT')return err('Method not allowed',405,origin);
  const limit=kind==='records'?1024*1024:LIMIT;
  const reader=request.body?.getReader();if(!reader)return err('Missing body',400,origin);
- const chunks=[];let total=0;while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>limit){await reader.cancel();return err('Too large',413,origin);}chunks.push(value);}
+ const chunks=[];let total=0;
+ try{while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>limit){await reader.cancel();return err('Too large',413,origin);}chunks.push(value);}}
+ catch{return err('Incomplete upload',400,origin);}
  const bytes=new Uint8Array(total);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
  if(kind==='files'){
   if(!total||await sha256Hex(bytes)!==id)return err('Digest mismatch',400,origin);
-  if(!await store.head(key))await store.put(key,bytes);
+  await store.put(key,bytes,{onlyIf:{etagDoesNotMatch:'*'}});
   return json({ok:true},200,origin);
  }
  let record;try{record=JSON.parse(new TextDecoder().decode(bytes));}catch{return err('Invalid JSON',400,origin);}
@@ -129,8 +168,10 @@ async function incremental(request,env,url,origin){
   if(record.kind==='account'&&(!value.secretBlob?.iv||!value.secretBlob?.ciphertext))return err('Encrypted login required',400,origin);
   if(record.kind==='vault'&&(!value.salt||!value.check?.ciphertext))return err('Invalid vault',400,origin);
   if(record.kind==='appliance'){
-   if(!Array.isArray(value.files)||value.files.some(f=>!f||!digestValid(f.originalHash)||f.previewHash&&!digestValid(f.previewHash)))return err('Invalid attachments',400,origin);
-   for(const f of value.files)for(const hash of [f.originalHash,f.previewHash].filter(Boolean))if(!await store.head(prefix+'files/'+hash))return err('Missing attachment',409,origin);
+   if(!Array.isArray(value.files)||value.files.length>250||new Set(value.files.map(f=>f?.id)).size!==value.files.length||value.files.some(f=>!f||typeof f.id!=='string'||!f.id||!digestValid(f.originalHash)||f.previewHash&&!digestValid(f.previewHash)||'blob'in f||'previewBlob'in f||'originalBytes'in f||'previewBytes'in f))return err('Invalid attachments',400,origin);
+   for(const hash of new Set(value.files.flatMap(f=>[f.originalHash,f.previewHash]).filter(Boolean))){
+    if(!await store.head(prefix+'files/'+hash))return err('Missing attachment',409,origin);
+   }
   }
  }
  const match=request.headers.get('If-Match'),create=request.headers.get('If-None-Match')==='*';
@@ -179,29 +220,19 @@ export default {
     }catch(_){return err('Invalid or expired owner sign-in',401,origin);}
     if(url.pathname.startsWith('/v1/product-photos/')){if(request.method!=='GET')return err('Method not allowed',405,origin);const id=url.pathname.slice('/v1/product-photos/'.length);return fetchManufacturerPhoto(id,origin);}
     if(!env.WARRANTY_STORE)return err('Private storage not configured',503,origin);
-    if(url.pathname.startsWith('/v2/'))return incremental(request,env,url,origin);
+    if(url.pathname.startsWith('/v2/')){
+      try{return await incremental(request,env,url,origin);}
+      catch{return err('Private incremental storage is temporarily unavailable',503,origin);}
+    }
     if(url.pathname==='/v1/backups'&&request.method==='GET'){
-      const prefix=`warranty-ease/v1/${OWNER}/archives/`;
-      // R2 lists lexicographically by UUID, not time. Scanning one 100-item
-      // page may hide the newest backup once an owner has accumulated >100.
-      const objects=[];let cursor,truncated=false;
-      for(let page=0;page<10;page++){
-        const data=await env.WARRANTY_STORE.list({prefix,limit:1000,...(cursor?{cursor}:{})});
-        objects.push(...data.objects);
-        truncated=!!data.truncated;
-        if(!truncated)break;
-        if(!data.cursor)throw Error('R2 did not return a continuation cursor');
-        cursor=data.cursor;
-      }
-      const backups=objects.flatMap(x=>{
-        const file=x.key.slice(prefix.length);
-        const chunked=file.endsWith('.manifest.json');
-        if(!chunked&&!file.endsWith('.encrypted'))return [];
-        const id=file.slice(0,-(chunked?'.manifest.json'.length:'.encrypted'.length));
-        if(!archiveIdValid(id))return [];
-        return [{id,created:x.uploaded?.toISOString?.()||'',size:chunked?Number(x.customMetadata?.bytes)||0:x.size||0,sha256:x.customMetadata?.sha256||'',format:chunked?'chunked':'single'}];
-      }).sort((a,b)=>b.created.localeCompare(a.created));
-      return json({backups:backups.slice(0,100),truncated,backupsCount:objects.length},200,origin);
+      const backups=await legacyBackups(env.WARRANTY_STORE);
+      const offset=Number(url.searchParams.get('offset')||0);
+      if(!Number.isSafeInteger(offset)||offset<0)return err('Invalid archive offset',400,origin);
+      const nextOffset=offset+100<backups.length?offset+100:null;
+      return json({backups:backups.slice(offset,offset+100),truncated:false,backupsCount:backups.length,nextOffset},200,origin);
+    }
+    if(['PUT','POST'].includes(request.method)&&await env.WARRANTY_STORE.head(MIGRATION_KEY)){
+      return err('Legacy archive sync has ended. Update Warranty Ease to sync this device’s saved changes.',409,origin);
     }
     // Immutable, encrypted fragment transfer. Fragments belong to an archive ID and are
     // invisible to list/restore until its final manifest is safely committed.
