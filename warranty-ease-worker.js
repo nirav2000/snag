@@ -1,9 +1,9 @@
-/* Warranty Ease — Cloudflare R2 encrypted snapshot service.
-   Never receives plaintext records, credentials, photos or archive passphrases.
+/* Warranty Ease — private owner-authenticated R2 records and evidence; legacy encrypted archives retained.
+   Website login secrets remain separately encrypted. No archive passphrases are transmitted.
    Firebase kk-syllabus ID tokens are verified against Google's JWKs.
    Existing App Monitor passkey sessions are verified by the dedicated App Monitor Worker;
    this Worker never deploys, modifies or stores the shared passkey service.
-   No delete endpoint; backups are append-only. */
+   No destructive delete endpoint; legacy backups and content-addressed evidence are retained. */
 const ALLOWED_ORIGIN='https://nirav2000.github.io';
 const OWNER='2AJSfYdtg5URWHv7HCzpNMmKIlg2';
 const PROJECT='kk-syllabus';
@@ -13,7 +13,7 @@ const LIMIT=30*1024*1024;
 const PART_LIMIT=12*1024*1024, MAX_PARTS=12, MAX_TOTAL=PART_LIMIT*MAX_PARTS;
 const encoder=new TextEncoder();
 let jwks=null,jwksExpiry=0;
-function cors(origin){return {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin',...(origin===ALLOWED_ORIGIN?{'Access-Control-Allow-Origin':ALLOWED_ORIGIN,'Access-Control-Allow-Methods':'GET,PUT,POST,OPTIONS','Access-Control-Allow-Headers':'Authorization,X-App-Monitor-Session,Content-Type,X-Warranty-Digest,If-Match,If-None-Match','Access-Control-Expose-Headers':'X-Warranty-Digest,X-Warranty-Format,ETag','Access-Control-Max-Age':'1200'}:{})};}
+function cors(origin){return {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin',...(origin===ALLOWED_ORIGIN?{'Access-Control-Allow-Origin':ALLOWED_ORIGIN,'Access-Control-Allow-Methods':'GET,HEAD,PUT,POST,OPTIONS','Access-Control-Allow-Headers':'Authorization,X-App-Monitor-Session,Content-Type,X-Warranty-Digest,If-Match,If-None-Match','Access-Control-Expose-Headers':'X-Warranty-Digest,X-Warranty-Format,ETag','Access-Control-Max-Age':'1200'}:{})};}
 function json(value,status=200,origin=''){return new Response(JSON.stringify(value),{status,headers:cors(origin)});}
 function decodeUrlBase64(value){const b64=value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=');return Uint8Array.from(atob(b64),c=>c.charCodeAt(0));}
 async function verifyFirebase(token){
@@ -93,15 +93,20 @@ function err(message,status,origin){return json({error:message},status,origin);}
 
 async function incremental(request,env,url,origin){
  const store=env.WARRANTY_STORE,prefix='warranty-ease/v2/'+OWNER+'/';
- const m=url.pathname.match(/^\/v2\/(records|files)\/([a-f0-9-]{1,80})$/);
+ const validRecordId=id=>/^(?:[al]-[a-zA-Z0-9_-]{1,100}|vault)$/.test(id);
+ const digestValid=id=>/^[a-f0-9]{64}$/.test(id);
+ const m=url.pathname.match(/^\/v2\/(records|files)\/([a-zA-Z0-9_-]{1,110})$/);
  if(url.pathname==='/v2/records'&&request.method==='GET'){
   const objects=[];let cursor;
-  do{const page=await store.list({prefix:prefix+'records/',cursor,limit:1000});objects.push(...page.objects.map(o=>({id:o.key.split('/').pop(),etag:o.etag})));cursor=page.truncated?page.cursor:undefined;}while(cursor);
+  do{const page=await store.list({prefix:prefix+'records/',cursor,limit:1000});objects.push(...page.objects.map(o=>({id:o.key.split('/').pop(),etag:o.etag})));if(page.truncated&&!page.cursor)throw Error('Incomplete record listing');cursor=page.truncated?page.cursor:undefined;}while(cursor);
   return json({records:objects},200,origin);
  }
  if(!m)return err('Not found',404,origin);
- const [,kind,id]=m;if(kind==='files'&&!/^[a-f0-9]{64}$/.test(id))return err('Invalid digest',400,origin);
+ const [,kind,id]=m;if(kind==='files'?!digestValid(id):!validRecordId(id))return err('Invalid identifier',400,origin);
  const key=prefix+kind+'/'+id;
+ if(request.method==='HEAD'&&kind==='files'){
+  const obj=await store.head(key);return new Response(null,{status:obj?200:404,headers:cors(origin)});
+ }
  if(request.method==='GET'){
   const obj=await store.get(key);if(!obj)return err('Not found',404,origin);
   return new Response(obj.body,{headers:{...cors(origin),'Content-Type':kind==='records'?'application/json':'application/octet-stream','ETag':obj.httpEtag,'X-Content-Type-Options':'nosniff'}});
@@ -117,15 +122,23 @@ async function incremental(request,env,url,origin){
   return json({ok:true},200,origin);
  }
  let record;try{record=JSON.parse(new TextDecoder().decode(bytes));}catch{return err('Invalid JSON',400,origin);}
- if(record.id!==id||!Array.isArray(record.files)||record.files.some(f=>!f||!/^[a-f0-9]{64}$/.test(f.originalHash||'')))return err('Invalid record',400,origin);
- for(const f of record.files)if(!await store.head(prefix+'files/'+f.originalHash))return err('Missing attachment',409,origin);
+ if(!record||record.id!==id||record.version!==2||!['appliance','account','vault'].includes(record.kind)||record.kind!==(id==='vault'?'vault':id.startsWith('a-')?'appliance':'account')||typeof record.deleted!=='boolean')return err('Invalid record',400,origin);
+ if(record.deleted){if(record.kind==='vault'||!Number.isFinite(Date.parse(record.deletedAt))||record.value!==null)return err('Invalid tombstone',400,origin);}
+ else{
+  const value=record.value;if(!value||typeof value!=='object'||value.id!==(id==='vault'?'vault':id.slice(2)))return err('Invalid record value',400,origin);
+  if(record.kind==='account'&&(!value.secretBlob?.iv||!value.secretBlob?.ciphertext))return err('Encrypted login required',400,origin);
+  if(record.kind==='vault'&&(!value.salt||!value.check?.ciphertext))return err('Invalid vault',400,origin);
+  if(record.kind==='appliance'){
+   if(!Array.isArray(value.files)||value.files.some(f=>!f||!digestValid(f.originalHash)||f.previewHash&&!digestValid(f.previewHash)))return err('Invalid attachments',400,origin);
+   for(const f of value.files)for(const hash of [f.originalHash,f.previewHash].filter(Boolean))if(!await store.head(prefix+'files/'+hash))return err('Missing attachment',409,origin);
+  }
+ }
  const match=request.headers.get('If-Match'),create=request.headers.get('If-None-Match')==='*';
- if(!match&&!create)return err('Revision required',428,origin);
+ if((!match&&!create)||(match&&create)||match&&!/^[a-fA-F0-9]{32,64}$/.test(match.replace(/^"|"$/g,'')))return err('Revision required',428,origin);
  const result=await store.put(key,bytes,{onlyIf:create?{etagDoesNotMatch:'*'}:{etagMatches:match.replace(/^"|"$/g,'')}});
  if(!result)return err('Revision conflict',412,origin);
  return json({ok:true,etag:result.etag},200,origin);
 }
-
 export default {
   async fetch(request,env){
     const origin=request.headers.get('Origin')||'';
@@ -153,7 +166,7 @@ export default {
           }catch(error){authServiceErrorType=(String(error?.name||'FetchError')+': '+String(error?.message||'').replace(/[A-Za-z0-9._-]{40,}/g,'[redacted]')).slice(0,180); /* diagnostic contains no request headers or bodies */ }
         }
       }
-      return json({ok:true,service:'warranty-ease-api',schema:1,passkeyBindingReady,
+      return json({ok:true,service:'warranty-ease-api',schema:2,incrementalSync:true,passkeyBindingReady,
         ...(authServiceReachable===undefined?{}:{authServiceReachable,authServiceHttpStatus,authServiceErrorType})},200,origin);
     }
     if(!url.pathname.startsWith('/v1/backups')&&!url.pathname.startsWith('/v1/product-photos/')&&!url.pathname.startsWith('/v2/'))return err('Not found',404,origin);
