@@ -13,7 +13,7 @@ const LIMIT=30*1024*1024;
 const PART_LIMIT=12*1024*1024, MAX_PARTS=12, MAX_TOTAL=PART_LIMIT*MAX_PARTS;
 const encoder=new TextEncoder();
 let jwks=null,jwksExpiry=0;
-function cors(origin){return {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin',...(origin===ALLOWED_ORIGIN?{'Access-Control-Allow-Origin':ALLOWED_ORIGIN,'Access-Control-Allow-Methods':'GET,PUT,POST,OPTIONS','Access-Control-Allow-Headers':'Authorization,X-App-Monitor-Session,Content-Type,X-Warranty-Digest','Access-Control-Expose-Headers':'X-Warranty-Digest,X-Warranty-Format','Access-Control-Max-Age':'1200'}:{})};}
+function cors(origin){return {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Vary':'Origin',...(origin===ALLOWED_ORIGIN?{'Access-Control-Allow-Origin':ALLOWED_ORIGIN,'Access-Control-Allow-Methods':'GET,PUT,POST,OPTIONS','Access-Control-Allow-Headers':'Authorization,X-App-Monitor-Session,Content-Type,X-Warranty-Digest,If-Match,If-None-Match','Access-Control-Expose-Headers':'X-Warranty-Digest,X-Warranty-Format,ETag','Access-Control-Max-Age':'1200'}:{})};}
 function json(value,status=200,origin=''){return new Response(JSON.stringify(value),{status,headers:cors(origin)});}
 function decodeUrlBase64(value){const b64=value.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(value.length/4)*4,'=');return Uint8Array.from(atob(b64),c=>c.charCodeAt(0));}
 async function verifyFirebase(token){
@@ -90,6 +90,42 @@ function manifestPath(id){return `warranty-ease/v1/${OWNER}/archives/${id}.manif
 function partPath(id,index){return `warranty-ease/v1/${OWNER}/parts/${id}/${String(index).padStart(3,'0')}.encrypted`;}
 function sha256Hex(bytes){return crypto.subtle.digest('SHA-256',bytes).then(h=>Array.from(new Uint8Array(h),b=>b.toString(16).padStart(2,'0')).join(''));}
 function err(message,status,origin){return json({error:message},status,origin);}
+
+async function incremental(request,env,url,origin){
+ const store=env.WARRANTY_STORE,prefix='warranty-ease/v2/'+OWNER+'/';
+ const m=url.pathname.match(/^\/v2\/(records|files)\/([a-f0-9-]{1,80})$/);
+ if(url.pathname==='/v2/records'&&request.method==='GET'){
+  const objects=[];let cursor;
+  do{const page=await store.list({prefix:prefix+'records/',cursor,limit:1000});objects.push(...page.objects.map(o=>({id:o.key.split('/').pop(),etag:o.etag})));cursor=page.truncated?page.cursor:undefined;}while(cursor);
+  return json({records:objects},200,origin);
+ }
+ if(!m)return err('Not found',404,origin);
+ const [,kind,id]=m;if(kind==='files'&&!/^[a-f0-9]{64}$/.test(id))return err('Invalid digest',400,origin);
+ const key=prefix+kind+'/'+id;
+ if(request.method==='GET'){
+  const obj=await store.get(key);if(!obj)return err('Not found',404,origin);
+  return new Response(obj.body,{headers:{...cors(origin),'Content-Type':kind==='records'?'application/json':'application/octet-stream','ETag':obj.httpEtag,'X-Content-Type-Options':'nosniff'}});
+ }
+ if(request.method!=='PUT')return err('Method not allowed',405,origin);
+ const limit=kind==='records'?1024*1024:LIMIT;
+ const reader=request.body?.getReader();if(!reader)return err('Missing body',400,origin);
+ const chunks=[];let total=0;while(true){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>limit){await reader.cancel();return err('Too large',413,origin);}chunks.push(value);}
+ const bytes=new Uint8Array(total);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+ if(kind==='files'){
+  if(!total||await sha256Hex(bytes)!==id)return err('Digest mismatch',400,origin);
+  if(!await store.head(key))await store.put(key,bytes);
+  return json({ok:true},200,origin);
+ }
+ let record;try{record=JSON.parse(new TextDecoder().decode(bytes));}catch{return err('Invalid JSON',400,origin);}
+ if(record.id!==id||!Array.isArray(record.files)||record.files.some(f=>!f||!/^[a-f0-9]{64}$/.test(f.originalHash||'')))return err('Invalid record',400,origin);
+ for(const f of record.files)if(!await store.head(prefix+'files/'+f.originalHash))return err('Missing attachment',409,origin);
+ const match=request.headers.get('If-Match'),create=request.headers.get('If-None-Match')==='*';
+ if(!match&&!create)return err('Revision required',428,origin);
+ const result=await store.put(key,bytes,{onlyIf:create?{etagDoesNotMatch:'*'}:{etagMatches:match.replace(/^"|"$/g,'')}});
+ if(!result)return err('Revision conflict',412,origin);
+ return json({ok:true,etag:result.etag},200,origin);
+}
+
 export default {
   async fetch(request,env){
     const origin=request.headers.get('Origin')||'';
@@ -120,7 +156,7 @@ export default {
       return json({ok:true,service:'warranty-ease-api',schema:1,passkeyBindingReady,
         ...(authServiceReachable===undefined?{}:{authServiceReachable,authServiceHttpStatus,authServiceErrorType})},200,origin);
     }
-    if(!url.pathname.startsWith('/v1/backups')&&!url.pathname.startsWith('/v1/product-photos/'))return err('Not found',404,origin);
+    if(!url.pathname.startsWith('/v1/backups')&&!url.pathname.startsWith('/v1/product-photos/')&&!url.pathname.startsWith('/v2/'))return err('Not found',404,origin);
     const raw=request.headers.get('Authorization')||'';
     const session=request.headers.get('X-App-Monitor-Session')||'';
     if(!raw.startsWith('Bearer ')&&!session)return err('Sign-in required',401,origin);
@@ -130,6 +166,7 @@ export default {
     }catch(_){return err('Invalid or expired owner sign-in',401,origin);}
     if(url.pathname.startsWith('/v1/product-photos/')){if(request.method!=='GET')return err('Method not allowed',405,origin);const id=url.pathname.slice('/v1/product-photos/'.length);return fetchManufacturerPhoto(id,origin);}
     if(!env.WARRANTY_STORE)return err('Private storage not configured',503,origin);
+    if(url.pathname.startsWith('/v2/'))return incremental(request,env,url,origin);
     if(url.pathname==='/v1/backups'&&request.method==='GET'){
       const prefix=`warranty-ease/v1/${OWNER}/archives/`;
       // R2 lists lexicographically by UUID, not time. Scanning one 100-item
