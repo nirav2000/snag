@@ -46,20 +46,24 @@ jobs:
         run: |
           set -euo pipefail
           ROOT='https://warranty-ease-api.nirav2000-github.workers.dev'
-          # Newly deployed workers.dev routes can take time to become visible at the edge.
+          # Requests can reach different edges while a new version propagates.
           for attempt in $(seq 1 15); do
-            status=$(curl --silent --show-error -o /tmp/warranty-health.json -w '%{http_code}' "$ROOT/v1/health" || true)
-            if [[ "$status" == 200 ]] && grep -q '"incrementalSync":true' /tmp/warranty-health.json; then break; fi
-            echo "Worker health not yet ready (attempt $attempt/15, HTTP $status)"
-            if [[ "$attempt" == 15 ]]; then
-              echo "::error::Worker health never became ready"
-              head -c 250 /tmp/warranty-health.json || true
-              exit 1
+            ready=1
+            if ! curl -fsS "$ROOT/v1/health?checkAuth=1" -o /tmp/warranty-health.json \
+              || ! grep -q '"incrementalSync":true' /tmp/warranty-health.json \
+              || ! grep -q '"authServiceReachable":true' /tmp/warranty-health.json; then
+              ready=0
             fi
+            for resource in /v1/backups /v2/migration /v2/records; do
+              code=$(curl --silent --show-error -o /dev/null -w '%{http_code}' "$ROOT$resource" || true)
+              [[ "$code" == 401 ]] || ready=0
+            done
+            if [[ "$ready" == 1 ]]; then
+              echo 'Warranty Ease deployed, shared passkey binding healthy and unauthenticated access denied.'
+              exit 0
+            fi
+            echo "Waiting for the version and access checks (attempt $attempt/15)"
             sleep 6
           done
-          for resource in /v1/backups /v2/migration /v2/records; do
-            code=$(curl --silent --show-error -o /tmp/warranty-unauth.json -w '%{http_code}' "$ROOT$resource")
-            test "$code" = 401 || { echo "::error::Unauthenticated $resource access returned $code"; exit 1; }
-          done
-          echo 'Worker deployed and unauthenticated access denied.'
+          echo '::error::Live version, passkey binding or private access checks did not pass'
+          exit 1
