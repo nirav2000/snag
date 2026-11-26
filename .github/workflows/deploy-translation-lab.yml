@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: nirav2000/Apps
-          ref: 5e8284bdf18c6106443471ddd50ea97a3c10a4ce
+          ref: ba82b60bc34e2255eeb5d28a8576da94cf7c420e
           path: apps
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -67,7 +67,7 @@ jobs:
           const root='https://translation-lab.nirav2000-github.workers.dev';
           let ready=false;
           for(let i=0;i<15;i++){
-            try{const r=await fetch(root+'/health?check='+i,{signal:AbortSignal.timeout(8000)});if(r.ok){const h=await r.json();if(h.build==='translation-gateway-v1.1.0'&&h.authConfigured&&h.quotaConfigured&&h.aiConfigured){ready=true;console.log('PASS: dedicated worker health '+JSON.stringify(h));break}}}catch{}
+            try{const r=await fetch(root+'/health?check='+i,{signal:AbortSignal.timeout(8000)});if(r.ok){const h=await r.json();if(h.build==='translation-gateway-v1.1.1'&&h.authConfigured&&h.quotaConfigured&&h.aiConfigured){ready=true;console.log('PASS: dedicated worker health '+JSON.stringify(h));break}}}catch{}
             await new Promise(r=>setTimeout(r,4000));
           }
           if(!ready)throw Error('Dedicated Worker not verified');
