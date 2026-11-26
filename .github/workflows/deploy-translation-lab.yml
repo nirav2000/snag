@@ -1,0 +1,77 @@
+name: Translation Lab — isolated Worker deployment
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/deploy-translation-lab.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: deploy-translation-lab
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: nirav2000/Apps
+          ref: 5e8284bdf18c6106443471ddd50ea97a3c10a4ce
+          path: apps
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: nirav2000/Kk-syllabus
+          ref: d10f7e4b41aa64533bfd37c921676a120a84a5fd
+          path: family-config
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test only the shared translation gateway
+        run: node --test apps/translation/v1/worker.test.mjs
+      - name: Deploy only the new translation-lab Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GOOGLE_TRANSLATE_KEY: ${{ secrets.GOOGLE_TRANSLATE_KEY || secrets.GOOGLE_CLOUD_TRANSLATION_API_KEY || secrets.GOOGLE_TRANSLATION_API_KEY }}
+          DEEPL_AUTH_KEY: ${{ secrets.DEEPL_AUTH_KEY || secrets.DEEPL_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          umask 077
+          node --input-type=module <<'NODE'
+          import {firebaseConfig,OWNER_UID} from './family-config/src/firebase-config.js';
+          import {writeFileSync} from 'node:fs';
+          if(firebaseConfig.projectId!=='kk-syllabus'||!OWNER_UID||!firebaseConfig.apiKey)throw Error('Wrong Firebase configuration');
+          const config={name:'translation-lab',main:'worker.mjs',compatibility_date:'2026-11-26',workers_dev:true,vars:{OWNER_UID,FIREBASE_WEB_API_KEY:firebaseConfig.apiKey},ai:{binding:'AI'},durable_objects:{bindings:[{name:'LIMITS',class_name:'Limits'}]},migrations:[{tag:'v1',new_sqlite_classes:['Limits']}]};
+          writeFileSync('apps/translation/v1/wrangler.json',JSON.stringify(config));
+          NODE
+          cd apps/translation/v1
+          npx --yes wrangler@4 deploy --config wrangler.json
+          if [ -n "$GOOGLE_TRANSLATE_KEY" ]; then
+            printf '%s' "$GOOGLE_TRANSLATE_KEY" | npx --yes wrangler@4 secret put GOOGLE_TRANSLATE_KEY --config wrangler.json
+          else
+            echo 'Google Cloud Translation key not configured in this deployment repository.'
+          fi
+          if [ -n "$DEEPL_AUTH_KEY" ]; then
+            printf '%s' "$DEEPL_AUTH_KEY" | npx --yes wrangler@4 secret put DEEPL_AUTH_KEY --config wrangler.json
+          else
+            echo 'Optional DeepL key not configured in this deployment repository.'
+          fi
+      - name: Verify dedicated Worker health and access denial
+        run: |
+          node --input-type=module <<'NODE'
+          const root='https://translation-lab.nirav2000-github.workers.dev';
+          let ready=false;
+          for(let i=0;i<15;i++){
+            try{const r=await fetch(root+'/health?check='+i,{signal:AbortSignal.timeout(8000)});if(r.ok){const h=await r.json();if(h.build==='translation-gateway-v1.1.0'&&h.authConfigured&&h.quotaConfigured&&h.aiConfigured){ready=true;console.log('PASS: dedicated worker health '+JSON.stringify(h));break}}}catch{}
+            await new Promise(r=>setTimeout(r,4000));
+          }
+          if(!ready)throw Error('Dedicated Worker not verified');
+          const r=await fetch(root,{method:'POST',headers:{Origin:'https://nirav2000.github.io','Content-Type':'application/json'},body:JSON.stringify({action:'status'})});
+          if(r.status!==401)throw Error('Anonymous requests not rejected');
+          console.log('PASS: anonymous access denied. No existing Worker modified.');
+          NODE
